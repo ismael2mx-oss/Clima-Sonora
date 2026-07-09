@@ -692,7 +692,7 @@
       radarMap = L.map('radarMap', { zoomControl: true }).setView([lat, lon], 7);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors',
-        maxZoom: 12
+        maxZoom: 18
       }).addTo(radarMap);
       radarMarker = L.circleMarker([lat, lon], {
         radius: 6, color: '#D7A24C', weight: 2, fillColor: '#D7A24C', fillOpacity: 1
