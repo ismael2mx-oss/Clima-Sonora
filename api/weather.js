@@ -16,7 +16,7 @@ export default async function handler(req, res) {
   try {
     const upstream = await fetch(url);
     const data = await upstream.json();
-    res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=60');
+    res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=30');
     res.status(upstream.status).json(data);
   } catch (err) {
     res.status(502).json({ error: { message: 'No se pudo contactar a WeatherAPI.' } });
