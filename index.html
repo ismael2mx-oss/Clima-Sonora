@@ -731,7 +731,7 @@
     radarFrameIndex = ((index % radarFrames.length) + radarFrames.length) % radarFrames.length;
     const frame = radarFrames[radarFrameIndex];
     const url = `${radarHost}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;
-    const newLayer = L.tileLayer(url, { opacity: 0.75 }).addTo(radarMap);
+    const newLayer = L.tileLayer(url, { opacity: 0.75, maxNativeZoom: 7, maxZoom: 18 }).addTo(radarMap);
     if(radarLayer) radarMap.removeLayer(radarLayer);
     radarLayer = newLayer;
 
