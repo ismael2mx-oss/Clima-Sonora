@@ -77,17 +77,18 @@ async function fetchMaxTemp(apiKey, m) {
   const url = `https://api.weatherapi.com/v1/forecast.json?key=${apiKey}&q=${m.lat},${m.lon}&days=1&aqi=no&alerts=no&lang=es`;
   try {
     const upstream = await fetch(url);
-    if (!upstream.ok) return { ...m, maxtemp_c: null, condicion: null };
+    if (!upstream.ok) return { ...m, maxtemp_c: null, chance_of_rain: null, condicion: null };
     const data = await upstream.json();
     const day = data?.forecast?.forecastday?.[0]?.day;
     return {
       municipio: m.municipio,
       cabecera: m.cabecera,
       maxtemp_c: day ? day.maxtemp_c : null,
+      chance_of_rain: day ? day.daily_chance_of_rain : null,
       condicion: day ? day.condition.text : null
     };
   } catch (err) {
-    return { municipio: m.municipio, cabecera: m.cabecera, maxtemp_c: null, condicion: null };
+    return { municipio: m.municipio, cabecera: m.cabecera, maxtemp_c: null, chance_of_rain: null, condicion: null };
   }
 }
 
