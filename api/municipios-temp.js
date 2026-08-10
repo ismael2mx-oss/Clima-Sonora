@@ -73,18 +73,31 @@ const MUNICIPIOS = [
   { "municipio": "Yécora", "cabecera": "Yécora", "lat": 28.3728, "lon": -108.9258 }
 ];
 
+async function fetchRainOpenMeteo(m) {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${m.lat}&longitude=${m.lon}&daily=precipitation_probability_max&timezone=America/Hermosillo&forecast_days=1`;
+  try {
+    const upstream = await fetch(url);
+    if (!upstream.ok) return null;
+    const data = await upstream.json();
+    const val = data?.daily?.precipitation_probability_max?.[0];
+    return typeof val === 'number' ? val : null;
+  } catch (err) {
+    return null;
+  }
+}
+
 async function fetchMaxTemp(apiKey, m) {
   const url = `https://api.weatherapi.com/v1/forecast.json?key=${apiKey}&q=${m.lat},${m.lon}&days=1&aqi=no&alerts=no&lang=es`;
   try {
-    const upstream = await fetch(url);
-    if (!upstream.ok) return { ...m, maxtemp_c: null, chance_of_rain: null, condicion: null };
+    const [upstream, rainOpenMeteo] = await Promise.all([fetch(url), fetchRainOpenMeteo(m)]);
+    if (!upstream.ok) return { ...m, maxtemp_c: null, chance_of_rain: rainOpenMeteo, condicion: null };
     const data = await upstream.json();
     const day = data?.forecast?.forecastday?.[0]?.day;
     return {
       municipio: m.municipio,
       cabecera: m.cabecera,
       maxtemp_c: day ? day.maxtemp_c : null,
-      chance_of_rain: day ? day.daily_chance_of_rain : null,
+      chance_of_rain: rainOpenMeteo !== null ? rainOpenMeteo : (day ? day.daily_chance_of_rain : null),
       condicion: day ? day.condition.text : null
     };
   } catch (err) {
