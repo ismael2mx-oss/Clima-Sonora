@@ -93,7 +93,7 @@
     border-radius: 14px;
     overflow: hidden;
   }
-  table{ width: 100%; border-collapse: collapse; }
+  table{ width: 100%; border-collapse: collapse; table-layout: fixed; }
   thead th{
     text-align: left;
     font-family: 'IBM Plex Mono', monospace;
@@ -108,11 +108,19 @@
     padding: 10px 16px;
     font-size: 14px;
     border-bottom: 1px solid var(--rule);
+    overflow-wrap: break-word;
   }
   tbody tr:last-child td{ border-bottom: none; }
   tbody tr:hover{ background: var(--panel-light); }
-  td.rank{ font-family: 'IBM Plex Mono', monospace; color: var(--slate); width: 40px; }
-  td.rain{ font-family: 'IBM Plex Mono', monospace; font-weight: 600; color: var(--brass); text-align:right; }
+  td.rank{ font-family: 'IBM Plex Mono', monospace; color: var(--slate); width: 30px; }
+  .cabecera{ display: block; font-size: 11px; color: var(--slate); margin-top: 2px; }
+  td.rain{ font-family: 'IBM Plex Mono', monospace; font-weight: 600; color: var(--brass); text-align:right; width: 64px; }
+  @media (max-width: 420px){
+    thead th{ padding: 10px 8px; font-size: 10px; }
+    tbody td{ padding: 8px 8px; font-size: 13px; }
+    td.rank{ width: 22px; }
+    td.rain{ width: 54px; }
+  }
   .empty-hint{ padding: 40px 16px; text-align:center; color: var(--slate); font-size: 13px; }
   footer{
     max-width: 720px;
@@ -145,7 +153,6 @@
         <tr>
           <th>#</th>
           <th>Municipio</th>
-          <th>Cabecera</th>
           <th style="text-align:right;">Lluvia %</th>
         </tr>
       </thead>
@@ -192,10 +199,12 @@
       ultimaLista.forEach((m, i) => {
         const tr = document.createElement('tr');
         const lluvia = (m.chance_of_rain === null || m.chance_of_rain === undefined) ? '—' : m.chance_of_rain;
+        const cabeceraHtml = (m.cabecera && m.cabecera !== m.municipio)
+          ? `<td class="cabecera-cell">${m.municipio}<span class="cabecera">${m.cabecera}</span></td>`
+          : `<td>${m.municipio}</td>`;
         tr.innerHTML = `
           <td class="rank">${i+1}</td>
-          <td>${m.municipio}</td>
-          <td>${m.cabecera}</td>
+          ${cabeceraHtml}
           <td class="rain">${lluvia === '—' ? '—' : lluvia + '%'}</td>
         `;
         tbody.appendChild(tr);
