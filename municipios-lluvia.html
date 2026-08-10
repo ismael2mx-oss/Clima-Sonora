@@ -122,6 +122,18 @@
     td.rain{ width: 54px; }
   }
   .empty-hint{ padding: 40px 16px; text-align:center; color: var(--slate); font-size: 13px; }
+  .resumen{
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .resumen strong{ color: var(--brass); }
+  tr.extremo td{ background: rgba(94,140,196,0.18); }
+  tr.extremo td.rain{ color: #7FB3E8; }
   footer{
     max-width: 720px;
     margin: 24px auto 0;
@@ -146,6 +158,7 @@
   </div>
 
   <div id="status" class="status"></div>
+  <div id="resumen" class="resumen" style="display:none;"></div>
 
   <div class="panel">
     <table id="tabla" style="display:none;">
@@ -168,9 +181,12 @@
   let ultimaLista = null;
   let ultimaFecha = null;
 
+  const UMBRAL_LLUVIA = 70; // % — probabilidad alta
+
   const generarBtn = document.getElementById('generarBtn');
   const pdfBtn = document.getElementById('pdfBtn');
   const statusEl = document.getElementById('status');
+  const resumenEl = document.getElementById('resumen');
   const tabla = document.getElementById('tabla');
   const tbody = document.getElementById('tbody');
   const emptyHint = document.getElementById('emptyHint');
@@ -180,6 +196,7 @@
     pdfBtn.disabled = true;
     statusEl.textContent = 'Consultando los 72 municipios, un momento…';
     tabla.style.display = 'none';
+    resumenEl.style.display = 'none';
     emptyHint.style.display = 'block';
     emptyHint.textContent = 'Cargando…';
 
@@ -202,6 +219,9 @@
         const cabeceraHtml = (m.cabecera && m.cabecera !== m.municipio)
           ? `<td class="cabecera-cell">${m.municipio}<span class="cabecera">${m.cabecera}</span></td>`
           : `<td>${m.municipio}</td>`;
+        if(m.chance_of_rain !== null && m.chance_of_rain !== undefined && m.chance_of_rain >= UMBRAL_LLUVIA){
+          tr.className = 'extremo';
+        }
         tr.innerHTML = `
           <td class="rank">${i+1}</td>
           ${cabeceraHtml}
@@ -209,6 +229,17 @@
         `;
         tbody.appendChild(tr);
       });
+
+      const conDato = ultimaLista.filter(m => m.chance_of_rain !== null && m.chance_of_rain !== undefined);
+      const sobreUmbral = conDato.filter(m => m.chance_of_rain >= UMBRAL_LLUVIA).length;
+      const promedio = conDato.length ? (conDato.reduce((s, m) => s + m.chance_of_rain, 0) / conDato.length) : null;
+      const masLluvioso = conDato[0];
+      resumenEl.innerHTML = `
+        Promedio de hoy: <strong>${promedio !== null ? Math.round(promedio) + '%' : '—'}</strong>
+        · <strong>${sobreUmbral}</strong> municipio${sobreUmbral === 1 ? '' : 's'} con ${UMBRAL_LLUVIA}% o más
+        ${masLluvioso ? `· Más lluvioso: <strong>${masLluvioso.municipio} (${masLluvioso.chance_of_rain}%)</strong>` : ''}
+      `;
+      resumenEl.style.display = 'block';
 
       tabla.style.display = 'table';
       emptyHint.style.display = 'none';
@@ -233,6 +264,7 @@
     doc.text('Probabilidad de lluvia por municipio — Sonora', 14, 16);
     doc.setFontSize(10);
     doc.text('Generado: ' + fechaTexto, 14, 23);
+    doc.text(resumenEl.textContent.replace(/\s+/g, ' ').trim(), 14, 29, { maxWidth: 180 });
 
     const filas = ultimaLista.map((m, i) => [
       i+1,
@@ -242,12 +274,19 @@
     ]);
 
     doc.autoTable({
-      startY: 28,
+      startY: 36,
       head: [['#', 'Municipio', 'Cabecera', 'Lluvia']],
       body: filas,
       styles: { fontSize: 9 },
       headStyles: { fillColor: [22, 31, 56] },
-      columnStyles: { 0: { cellWidth: 12 }, 3: { halign: 'right', cellWidth: 22 } }
+      columnStyles: { 0: { cellWidth: 12 }, 3: { halign: 'right', cellWidth: 22 } },
+      didParseCell: (hookData) => {
+        if(hookData.section !== 'body') return;
+        const m = ultimaLista[hookData.row.index];
+        if(m && m.chance_of_rain !== null && m.chance_of_rain !== undefined && m.chance_of_rain >= UMBRAL_LLUVIA){
+          hookData.cell.styles.fillColor = [210, 227, 244];
+        }
+      }
     });
 
     const fechaArchivo = ultimaFecha.toISOString().slice(0,10);
