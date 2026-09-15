@@ -720,10 +720,9 @@
   function initRadarMap(lat, lon){
     if(!radarMap){
       radarMap = L.map('radarMap', { zoomControl: true }).setView([lat, lon], 7);
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-        subdomains: 'abcd',
-        maxZoom: 18
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri &mdash; Source: Esri, HERE, Garmin, USGS, Intermap',
+        maxZoom: 19
       }).addTo(radarMap);
       radarMarker = L.circleMarker([lat, lon], {
         radius: 6, color: '#D7A24C', weight: 2, fillColor: '#D7A24C', fillOpacity: 1
