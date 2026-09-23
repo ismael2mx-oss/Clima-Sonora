@@ -175,6 +175,12 @@
     <span><span class="swatch" style="background:#FF9EC7"></span> Vigilancia de huracán</span>
     <span><span class="swatch" style="background:#FF2D2D"></span> Aviso de huracán</span>
   </div>
+  <div class="ww-legend">
+    <span>Zonas de formación (7 días):</span>
+    <span><span class="dot-sw" style="background:#FFE66D"></span> Baja</span>
+    <span><span class="dot-sw" style="background:#FF9F1C"></span> Media</span>
+    <span><span class="dot-sw" style="background:#FF3B30"></span> Alta</span>
+  </div>
 
   <h2>Tormentas activas</h2>
   <div id="stormList" class="storm-grid-list"></div>
@@ -597,13 +603,14 @@
       renderStormCards();
 
       const gen = new Date(data.generado);
-      subtitleEl.textContent = storms.length
-        ? `${storms.length} ciclón${storms.length === 1 ? '' : 'es'} activo${storms.length === 1 ? '' : 's'} en el Pacífico · consultado ${fmtTime(gen)} h`
+      const n = storms.length;
+      subtitleEl.textContent = n
+        ? `${n} ${n === 1 ? 'ciclón activo' : 'ciclones activos'} en el Pacífico · consultado ${fmtTime(gen)} h`
         : `Sin ciclones activos en el Pacífico · consultado ${fmtTime(gen)} h`;
 
-      if(storms.length){
+      if(n){
         const b = L.latLngBounds(storms.map(s => [s.lat, s.lon]));
-        map.fitBounds(b.pad(0.7), { maxZoom: 5 });
+        map.fitBounds(b.pad(0.25), { maxZoom: 5 });
       }
     }catch(err){
       subtitleEl.textContent = 'No se pudo cargar la información del NHC. Intenta de nuevo en unos minutos.';
