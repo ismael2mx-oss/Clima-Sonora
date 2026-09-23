@@ -609,8 +609,10 @@
         : `Sin ciclones activos en el Pacífico · consultado ${fmtTime(gen)} h`;
 
       if(n){
+        map.invalidateSize();
         const b = L.latLngBounds(storms.map(s => [s.lat, s.lon]));
-        map.fitBounds(b.pad(0.25), { maxZoom: 5 });
+        map.fitBounds(b.pad(0.1), { maxZoom: 5, animate: false });
+        if(map.getZoom() < 3) map.setView(b.getCenter(), 3, { animate: false });
       }
     }catch(err){
       subtitleEl.textContent = 'No se pudo cargar la información del NHC. Intenta de nuevo en unos minutos.';
