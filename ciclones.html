@@ -230,7 +230,7 @@
   <h2>Zonas de posible formación (Pacífico)</h2>
   <div id="outlookList"></div>
 
-  <footer>DATOS: NHC/NOAA · SATÉLITE: GOES-West vía NASA GIBS · MAPA: ESRI</footer>
+  <footer>DATOS: NHC/NOAA · SATÉLITE Y MAR: NASA GIBS · LLUVIA: OPEN-METEO · MAPA: ESRI</footer>
 </div>
 
 <script>
@@ -351,7 +351,7 @@
     updateSatLabel();
     const layer = L.tileLayer(frameUrl(satFrames[idx]), {
       pane: 'sat', maxNativeZoom: satInfo.maxNativeZoom, maxZoom: 9, opacity: 0,
-      attribution: 'Satélite: NOAA GOES-West vía NASA GIBS'
+      attribution: satInfo.daily ? 'Temperatura del mar: NASA MUR (GHRSST) vía GIBS' : 'Satélite: NOAA GOES-West vía NASA GIBS'
     });
     const old = satLayer;
     satLayer = layer;
