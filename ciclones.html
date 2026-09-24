@@ -134,8 +134,34 @@
     color: var(--slate);
     text-align:center;
   }
+  .prox{ margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--rule); }
+  .prox > .k{ font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--slate); }
+  .sub{ font-size: 11px; color: var(--slate); line-height: 1.4; }
+  .daytabs{ display:grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 12px; }
+  .daytab{
+    background: var(--panel); border: 1px solid var(--rule); border-radius: 12px;
+    color: var(--paper); padding: 10px 6px; cursor: pointer; text-align:center;
+    display:flex; flex-direction:column; gap: 2px; font-family: inherit;
+  }
+  .daytab:hover{ border-color: rgba(215,162,76,.5); }
+  .daytab.active{ border-color: var(--brass); }
+  .daytab .dl{ font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .08em; color: var(--slate); }
+  .daytab .dv{ font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 600; color: var(--brass); }
+  .daytab .ds{ font-size: 10px; color: var(--slate); line-height: 1.2; }
+  .rain-panel{ padding: 14px 16px; }
+  .rain-summary{ font-size: 13px; line-height: 1.6; margin-bottom: 10px; }
+  .rain-summary strong{ color: var(--brass); }
+  table.mini{ width:100%; border-collapse: collapse; font-size: 13px; }
+  table.mini td{ padding: 7px 4px; border-top: 1px solid var(--rule); }
+  table.mini td.n{ width: 24px; color: var(--slate); font-family: 'IBM Plex Mono', monospace; }
+  table.mini td.p, table.mini td.mm{ text-align:right; font-family: 'IBM Plex Mono', monospace; }
+  table.mini td.p{ color: var(--brass); font-weight: 600; width: 60px; }
+  table.mini td.mm{ color: var(--slate); width: 70px; }
+  table.mini tr.alta td{ background: rgba(94,140,196,0.18); }
   @media (max-width: 520px){
     .storm-grid-list{ grid-template-columns: 1fr; }
+    .daytab .ds{ display:none; }
+    .daytab .dv{ font-size: 15px; }
   }
 </style>
 </head>
@@ -148,11 +174,17 @@
 
   <div class="panel controls">
     <div class="row">
-      <span class="lbl">Satélite GOES-West</span>
-      <select id="satSelect" aria-label="Capa de satélite">
+      <span class="lbl">Imagen de fondo</span>
+      <select id="satSelect" aria-label="Capa de imagen de fondo">
         <option value="">Apagado</option>
-        <option value="geocolor" selected>Color real</option>
-        <option value="infrarrojo">Infrarrojo</option>
+        <optgroup label="Satélite GOES-West">
+          <option value="geocolor" selected>Color real</option>
+          <option value="infrarrojo">Infrarrojo</option>
+        </optgroup>
+        <optgroup label="Temperatura del mar (NASA MUR)">
+          <option value="sst">Temperatura (°C)</option>
+          <option value="sstanom">Anomalía vs. normal</option>
+        </optgroup>
       </select>
       <button id="satPlay" class="play" type="button" aria-label="Reproducir animación del satélite" disabled>▶</button>
       <span id="satTime" class="sat-time"></span>
@@ -167,6 +199,11 @@
 
   <div class="panel map-panel"><div id="map"></div></div>
 
+  <div id="satLegend" class="panel legend" hidden>
+    <span id="satLegendTitle" style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--slate)"></span>
+    <div style="background:#F2EEE3;border-radius:8px;padding:6px;margin-top:8px;max-width:420px"><img id="satLegendImg" alt="Leyenda de la capa" style="display:block;width:100%;height:auto"></div>
+    <div class="legend-note" id="satLegendNote"></div>
+  </div>
   <div id="modelsLegend" class="panel legend" hidden></div>
 
   <div class="ww-legend">
@@ -185,6 +222,10 @@
   <h2>Tormentas activas</h2>
   <div id="stormList" class="storm-grid-list"></div>
   <p class="note">Los avisos, discusiones y gráficos oficiales del NHC están en inglés. Horas mostradas en hora de Sonora (UTC-7).</p>
+
+  <h2>Lluvia en Sonora — próximos 5 días</h2>
+  <div id="sonoraRain"><div class="panel empty">Cargando lluvia de los 72 municipios…</div></div>
+  <p class="note">Probabilidad máxima del día por municipio (Open-Meteo). Compárala con el cono y los modelos: la lluvia no siempre proviene de un ciclón. <a href="/municipios-lluvia.html" target="_blank" rel="noopener" style="color:var(--brass)">Lista completa de hoy</a></p>
 
   <h2>Zonas de posible formación (Pacífico)</h2>
   <div id="outlookList"></div>
@@ -274,10 +315,28 @@
 
   function frameUrl(iso){ return `${GIBS}/${satInfo.layer}/default/${iso}/${satInfo.tms}/{z}/{y}/{x}.png`; }
 
+  const satLegend = document.getElementById('satLegend');
+  const satLegendImg = document.getElementById('satLegendImg');
+
   function updateSatLabel(){
     if(!satFrames.length){ satTime.textContent = ''; return; }
+    if(satInfo && satInfo.daily){
+      const d = new Date(satFrames[satIdx] + 'T12:00:00Z');
+      satTime.textContent = `Datos del ${d.toLocaleDateString('es-MX', { day: 'numeric', month: 'long', timeZone: 'UTC' })} (actualización diaria)`;
+      return;
+    }
     const d = new Date(satFrames[satIdx]);
     satTime.textContent = `${fmtTime(d)} h · imagen ${satIdx + 1}/${satFrames.length}`;
+  }
+
+  function showSatLegend(capa, info){
+    if(!info || !info.legend){ satLegend.hidden = true; return; }
+    document.getElementById('satLegendTitle').textContent = capa === 'sstanom' ? 'Anomalía de temperatura del mar' : 'Temperatura del mar';
+    document.getElementById('satLegendNote').textContent = capa === 'sstanom'
+      ? 'Diferencia contra el promedio histórico. Valores positivos: mar más cálido de lo normal. NASA MUR (1 km).'
+      : 'Los huracanes suelen intensificarse sobre agua de 26.5 °C o más. NASA MUR (1 km), un día de retraso.';
+    satLegendImg.src = info.legend;
+    satLegend.hidden = false;
   }
 
   function scheduleNext(){
@@ -301,7 +360,7 @@
       if(done) return;
       done = true;
       if(satLayer !== layer) { map.removeLayer(layer); return; }
-      layer.setOpacity(0.88);
+      layer.setOpacity(satInfo && satInfo.daily ? 0.8 : 0.88);
       if(old && old !== layer) map.removeLayer(old);
       scheduleNext();
     };
@@ -324,9 +383,10 @@
     satFrames = []; satInfo = null;
     satPlay.disabled = true;
     satTime.textContent = '';
+    satLegend.hidden = true;
     if(!capa) return;
 
-    satTime.textContent = 'Cargando satélite…';
+    satTime.textContent = 'Cargando capa…';
     try{
       const res = await fetch(`/api/ciclones-satelite?capa=${capa}`);
       const data = await res.json();
@@ -335,9 +395,10 @@
       satInfo = data;
       satFrames = data.frames;
       satPlay.disabled = satFrames.length < 2;
+      showSatLegend(capa, data);
       showFrame(satFrames.length - 1);
     }catch(err){
-      if(req === satReq) satTime.textContent = 'Satélite no disponible por ahora';
+      if(req === satReq) satTime.textContent = 'Capa no disponible por ahora';
     }
   }
 
@@ -412,6 +473,54 @@
     pin.addTo(groups.positions);
   }
 
+  // ===== Cercanía a costas (puertos de referencia) =====
+  const REFS = {
+    'Sonora': [['Puerto Peñasco', 31.32, -113.54], ['Bahía Kino', 28.83, -111.94], ['Guaymas', 27.92, -110.90], ['Yavaros', 26.70, -109.52]],
+    'Península de B.C.': [['Ensenada', 31.87, -116.62], ['Guerrero Negro', 27.97, -114.04], ['Santa Rosalía', 27.34, -112.27], ['Loreto', 26.01, -111.35], ['Bahía Magdalena', 24.79, -112.11], ['La Paz', 24.14, -110.31], ['Cabo San Lucas', 22.89, -109.91]],
+    'Costa continental': [['Topolobampo', 25.60, -109.05], ['Mazatlán', 23.22, -106.42], ['Puerto Vallarta', 20.65, -105.23], ['Manzanillo', 19.05, -104.32], ['Zihuatanejo', 17.64, -101.55], ['Acapulco', 16.85, -99.88], ['Puerto Escondido', 15.86, -97.07], ['Salina Cruz', 16.17, -95.20]]
+  };
+
+  function haversine(lat1, lon1, lat2, lon2){
+    const R = 6371, rad = Math.PI / 180;
+    const dLat = (lat2 - lat1) * rad, dLon = (lon2 - lon1) * rad;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+  }
+  const fmtKm = v => Math.round(v).toLocaleString('es-MX') + ' km';
+
+  function stormPath(s){
+    const pts = ((s.points && s.points.features) || [])
+      .map(f => ({ tau: Number(f.properties.tau), lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], when: parseValidLabel(f.properties.fldatelbl) }))
+      .filter(p => Number.isFinite(p.tau))
+      .sort((a, b) => a.tau - b.tau);
+    if(!pts.length || pts[0].tau !== 0) pts.unshift({ tau: 0, lat: s.lat, lon: s.lon, when: new Date(s.lastUpdate) });
+    else { pts[0].lat = s.lat; pts[0].lon = s.lon; }
+    return pts;
+  }
+
+  function proximityHtml(s){
+    const path = stormPath(s);
+    const rows = Object.entries(REFS).map(([region, places]) => {
+      let now = null, best = null;
+      path.forEach((p, idx) => places.forEach(([name, la, lo]) => {
+        const d = haversine(p.lat, p.lon, la, lo);
+        if(idx === 0 && (!now || d < now.d)) now = { d, name };
+        if(!best || d < best.d) best = { d, name, p, idx };
+      }));
+      let detail;
+      if(best.idx === 0){
+        detail = 'se aleja según el pronóstico';
+      }else{
+        const when = best.p.when ? `${fmtTime(best.p.when)} h` : `+${best.p.tau} h`;
+        const tail = best.idx === path.length - 1 ? 'sigue acercándose al final del pronóstico' : 'mínima pronosticada';
+        detail = `${tail}: ${fmtKm(best.d)} de ${esc(best.name)}, ${when}`;
+      }
+      return `<span class="k">${esc(region)}</span><span class="v">${fmtKm(now.d)} de ${esc(now.name)}<br><span class="sub">${detail}</span></span>`;
+    });
+    return `<div class="prox"><div class="k" style="margin-bottom:6px">Cercanía</div><div class="kv">${rows.join('')}</div>
+      <div class="sub" style="margin-top:6px">Distancia a puertos de referencia (no a la línea de costa), con el pronóstico oficial a 5 días.</div></div>`;
+  }
+
   function renderStormCards(){
     stormListEl.innerHTML = '';
     if(!storms.length){
@@ -439,6 +548,7 @@
           <span class="k">Movimiento</span><span class="v">${compass(s.movementDir)} a ${kmh(s.movementSpeedKt)} km/h</span>
           <span class="k">Aviso</span><span class="v">${fmtTime(upd)} h</span>
         </div>
+        ${proximityHtml(s)}
         <div class="links">
           ${link(l.publicAdvisory, 'Aviso público')}
           ${link(l.forecastDiscussion, 'Discusión')}
@@ -568,6 +678,64 @@
     });
   }
 
+  // ===== Lluvia en Sonora =====
+  let sonora = null;
+  let sonoraDay = 0;
+  const dayFmt = new Intl.DateTimeFormat('es-MX', { weekday: 'short', timeZone: 'UTC' });
+
+  function renderSonoraRain(){
+    const el = document.getElementById('sonoraRain');
+    const idxs = sonora.dias.map((_, i) => i);
+
+    const tabs = idxs.map(i => {
+      const probs = sonora.municipios.map(m => m.prob[i]).filter(Number.isFinite);
+      const avg = probs.length ? Math.round(probs.reduce((a, b) => a + b, 0) / probs.length) : 0;
+      const high = probs.filter(p => p >= 50).length;
+      const label = i === 0 ? 'HOY' : i === 1 ? 'MAÑANA' : dayFmt.format(new Date(sonora.dias[i] + 'T12:00:00Z')).toUpperCase().replace('.', '');
+      return `<button type="button" class="daytab${i === sonoraDay ? ' active' : ''}" data-i="${i}">
+        <span class="dl">${esc(label)}</span><span class="dv">${avg}%</span><span class="ds">${high} mun. con 50%+</span></button>`;
+    }).join('');
+
+    const rows = sonora.municipios
+      .map(m => ({ name: m.municipio, cab: m.cabecera, p: m.prob[sonoraDay], mm: m.mm[sonoraDay] }))
+      .filter(r => Number.isFinite(r.p))
+      .sort((a, b) => b.p - a.p || (b.mm || 0) - (a.mm || 0));
+    const top = rows.slice(0, 10);
+    const high = rows.filter(r => r.p >= 50).length;
+    const wettest = rows.reduce((best, r) => (r.mm > (best ? best.mm : -1) ? r : best), null);
+
+    el.innerHTML = `
+      <div class="daytabs">${tabs}</div>
+      <div class="panel rain-panel">
+        <div class="rain-summary">
+          <strong>${high}</strong> de ${rows.length} municipios con 50% o más de probabilidad
+          ${wettest && wettest.mm > 0 ? `· mayor acumulado esperado: <strong>${esc(wettest.name)} (${wettest.mm.toFixed(1)} mm)</strong>` : ''}
+        </div>
+        <table class="mini">
+          ${top.map((r, i) => `<tr class="${r.p >= 70 ? 'alta' : ''}"><td class="n">${i + 1}</td><td>${esc(r.name)}</td><td class="p">${r.p}%</td><td class="mm">${(r.mm || 0).toFixed(1)} mm</td></tr>`).join('')}
+        </table>
+        <div class="sub" style="margin-top:8px">Los 10 municipios con mayor probabilidad ese día. Resaltados: 70% o más.</div>
+      </div>`;
+
+    el.querySelectorAll('.daytab').forEach(b => b.addEventListener('click', () => {
+      sonoraDay = Number(b.dataset.i);
+      renderSonoraRain();
+    }));
+  }
+
+  async function loadSonoraRain(){
+    const el = document.getElementById('sonoraRain');
+    try{
+      const res = await fetch('/api/sonora-lluvia');
+      const data = await res.json();
+      if(!res.ok || !data.dias) throw new Error();
+      sonora = data;
+      renderSonoraRain();
+    }catch(err){
+      el.innerHTML = '<div class="panel empty">No se pudo cargar la lluvia de Sonora por ahora.</div>';
+    }
+  }
+
   // ===== Interruptores =====
   function bindToggle(id, group){
     document.getElementById(id).addEventListener('change', e => {
@@ -590,6 +758,7 @@
   // ===== Carga inicial =====
   async function init(){
     loadSatellite();
+    loadSonoraRain();
     try{
       const res = await fetch('/api/ciclones');
       const data = await res.json();

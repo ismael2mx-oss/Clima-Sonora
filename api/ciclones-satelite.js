@@ -2,7 +2,15 @@ const GIBS = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best';
 
 const LAYERS = {
   geocolor: { name: 'GOES-West_ABI_GeoColor', tms: 'GoogleMapsCompatible_Level7', maxNativeZoom: 7 },
-  infrarrojo: { name: 'GOES-West_ABI_Band13_Clean_Infrared', tms: 'GoogleMapsCompatible_Level6', maxNativeZoom: 6 }
+  infrarrojo: { name: 'GOES-West_ABI_Band13_Clean_Infrared', tms: 'GoogleMapsCompatible_Level6', maxNativeZoom: 6 },
+  sst: {
+    name: 'GHRSST_L4_MUR_Sea_Surface_Temperature', tms: 'GoogleMapsCompatible_Level7', maxNativeZoom: 7,
+    daily: true, legend: 'https://gibs.earthdata.nasa.gov/legends/GHRSST_Sea_Surface_Temperature_H.svg'
+  },
+  sstanom: {
+    name: 'GHRSST_L4_MUR_Sea_Surface_Temperature_Anomalies', tms: 'GoogleMapsCompatible_Level7', maxNativeZoom: 7,
+    daily: true, legend: 'https://gibs.earthdata.nasa.gov/legends/GHRSST_Sea_Surface_Temperature_Anomalies_H.svg'
+  }
 };
 
 const CANDIDATES = 18;
@@ -67,6 +75,15 @@ export default async function handler(req, res) {
   try {
     const xml = await getCapabilities();
     const block = layerBlock(xml, layer.name);
+
+    if (layer.daily) {
+      const m = /<Default>(\d{4}-\d{2}-\d{2})<\/Default>/.exec(block);
+      if (!m) throw new Error('Fecha no disponible.');
+      res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate=600');
+      res.status(200).json({ capa: key, layer: layer.name, tms: layer.tms, maxNativeZoom: layer.maxNativeZoom, daily: true, legend: layer.legend, frames: [m[1]] });
+      return;
+    }
+
     const isoTimes = candidateTimes(block).map(t => new Date(t).toISOString().replace('.000Z', 'Z'));
 
     const checks = await Promise.all(isoTimes.map(iso => frameHasData(layer, iso)));
