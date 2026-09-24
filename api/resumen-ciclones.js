@@ -106,7 +106,8 @@ function stormSection(s, index) {
     rows.forEach(p => {
       const when = parseValidLabel(p.fldatelbl);
       const kt = Number(p.maxwind);
-      L.push(`     +${String(p.tau).padStart(3, ' ')} h · ${when ? fmtShort(when) : 'hora n/d'} · ${Number.isFinite(kt) ? kmh(kt) + ' km/h (' + catLabel(kt) + ')' : 'viento n/d'}`);
+      const cat = Number.isFinite(kt) ? catLabel(kt).replace(' (huracán mayor)', '') : '';
+      L.push(`     +${String(p.tau).padStart(3, ' ')} h · ${when ? fmtShort(when) : 'hora n/d'} · ${Number.isFinite(kt) ? kmh(kt) + ' km/h · ' + cat : 'viento n/d'}`);
     });
     const coords = feats.slice().sort((a, b) => Number(a.properties.tau) - Number(b.properties.tau))
       .map(f => `+${f.properties.tau} h: ${fmtLat(f.geometry.coordinates[1])} ${fmtLon(f.geometry.coordinates[0])}`);
