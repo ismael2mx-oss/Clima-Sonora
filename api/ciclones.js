@@ -81,19 +81,21 @@ async function loadOutlook(ids) {
   return { areas: onlyPacific(areas), motion: onlyPacific(motion), current: onlyPacific(current) };
 }
 
+export async function loadPacificStorms() {
+  const [csRes, ids] = await Promise.all([fetch(NHC_JSON, { headers: HEADERS }), getLayerIds()]);
+  if (!csRes.ok) throw new Error('No se pudo leer la lista de tormentas activas del NHC.');
+  const cs = await csRes.json();
+
+  const pacific = (cs.activeStorms || []).filter(s => /^(EP|CP)/i.test(s.binNumber || ''));
+  const storms = await Promise.all(pacific.map(s => loadStorm(s, ids)));
+  storms.sort((a, b) => b.intensityKt - a.intensityKt);
+  return { storms, ids };
+}
+
 export default async function handler(req, res) {
   try {
-    const [csRes, ids] = await Promise.all([fetch(NHC_JSON, { headers: HEADERS }), getLayerIds()]);
-    if (!csRes.ok) throw new Error('No se pudo leer la lista de tormentas activas del NHC.');
-    const cs = await csRes.json();
-
-    const pacific = (cs.activeStorms || []).filter(s => /^(EP|CP)/i.test(s.binNumber || ''));
-    const [storms, outlook] = await Promise.all([
-      Promise.all(pacific.map(s => loadStorm(s, ids))),
-      loadOutlook(ids)
-    ]);
-
-    storms.sort((a, b) => b.intensityKt - a.intensityKt);
+    const { storms, ids } = await loadPacificStorms();
+    const outlook = await loadOutlook(ids);
 
     res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=120');
     res.status(200).json({ generado: new Date().toISOString(), storms, outlook });

@@ -1,0 +1,102 @@
+name: Avisos de ciclones por correo
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    inputs:
+      prueba:
+        description: 'Enviar un correo de prueba con la situación actual (no altera el estado)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: avisos-ciclones
+  cancel-in-progress: false
+
+jobs:
+  avisos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SITE: https://clima-sonora-6fne.vercel.app
+    steps:
+      - name: Verificar configuración
+        id: config
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: |
+          if [ -n "$GMAIL_USER" ] && [ -n "$GMAIL_APP_PASSWORD" ]; then
+            echo "listo=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "listo=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Faltan los secretos GMAIL_USER y GMAIL_APP_PASSWORD; no se envía nada todavía."
+          fi
+
+      - name: Restaurar estado anterior
+        if: steps.config.outputs.listo == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: estado.json
+          key: avisos-estado-${{ github.run_id }}
+          restore-keys: avisos-estado-
+
+      - name: Consultar avisos
+        id: consulta
+        if: steps.config.outputs.listo == 'true'
+        env:
+          PRUEBA: ${{ inputs.prueba }}
+        run: |
+          [ -f estado.json ] || echo '{}' > estado.json
+          URL="$SITE/api/ciclones-avisos"
+          if [ "$PRUEBA" = "true" ]; then URL="$URL?prueba=1"; fi
+          curl -sS --fail --retry 3 --retry-delay 5 --max-time 90 \
+            -X POST -H 'Content-Type: application/json' \
+            --data @estado.json "$URL" -o respuesta.json
+          jq -c '.newState' respuesta.json > nuevo_estado.json
+          echo "cantidad=$(jq '.alerts | length' respuesta.json)" >> "$GITHUB_OUTPUT"
+          echo "Tormentas activas: $(jq '.tormentas' respuesta.json) · avisos nuevos: $(jq '.alerts | length' respuesta.json)"
+
+      - name: Enviar correo
+        if: steps.config.outputs.listo == 'true' && steps.consulta.outputs.cantidad != '0'
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+        run: |
+          python3 - <<'PY'
+          import json, os, smtplib, ssl
+          from email.message import EmailMessage
+
+          r = json.load(open('respuesta.json', encoding='utf-8'))
+          user = os.environ['GMAIL_USER']
+          pwd = os.environ['GMAIL_APP_PASSWORD']
+          to = os.environ.get('ALERT_EMAIL_TO') or user
+
+          msg = EmailMessage()
+          msg['Subject'] = r['subject']
+          msg['From'] = f'Clima Sonora <{user}>'
+          msg['To'] = to
+          msg.set_content(r['text'])
+          msg.add_alternative(r['html'], subtype='html')
+
+          with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=ssl.create_default_context()) as s:
+              s.login(user, pwd)
+              s.send_message(msg)
+          print('Correo enviado.')
+          PY
+
+      - name: Guardar estado
+        if: steps.config.outputs.listo == 'true'
+        run: cp nuevo_estado.json estado.json
+
+      - name: Guardar estado en caché
+        if: steps.config.outputs.listo == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: estado.json
+          key: avisos-estado-${{ github.run_id }}
