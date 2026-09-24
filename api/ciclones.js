@@ -81,6 +81,10 @@ async function loadOutlook(ids) {
   return { areas: onlyPacific(areas), motion: onlyPacific(motion), current: onlyPacific(current) };
 }
 
+export async function loadOutlookData() {
+  return loadOutlook(await getLayerIds());
+}
+
 export async function loadPacificStorms() {
   const [csRes, ids] = await Promise.all([fetch(NHC_JSON, { headers: HEADERS }), getLayerIds()]);
   if (!csRes.ok) throw new Error('No se pudo leer la lista de tormentas activas del NHC.');
