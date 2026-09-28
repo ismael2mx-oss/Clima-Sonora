@@ -288,15 +288,11 @@
   }
 
   // ===== Mapa =====
-  const map = L.map('map', { minZoom: 2, maxZoom: 9, worldCopyJump: true }).setView([17, -112], 4);
+  const map = L.map('map', { minZoom: 2, maxZoom: 12, worldCopyJump: true }).setView([17, -112], 4);
   map.createPane('sat'); map.getPane('sat').style.zIndex = 250;
-  map.createPane('ref'); map.getPane('ref').style.zIndex = 300; map.getPane('ref').style.pointerEvents = 'none';
 
-  L.tileLayer(`${ESRI}/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`, {
-    attribution: 'Tiles &copy; Esri', maxNativeZoom: 12, maxZoom: 9
-  }).addTo(map);
-  L.tileLayer(`${ESRI}/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}`, {
-    pane: 'ref', maxNativeZoom: 12, maxZoom: 9
+  L.tileLayer(`${ESRI}/World_Street_Map/MapServer/tile/{z}/{y}/{x}`, {
+    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, HERE, Garmin, USGS, Intermap', maxZoom: 12
   }).addTo(map);
 
   const groups = {
@@ -350,7 +346,7 @@
     satIdx = idx;
     updateSatLabel();
     const layer = L.tileLayer(frameUrl(satFrames[idx]), {
-      pane: 'sat', maxNativeZoom: satInfo.maxNativeZoom, maxZoom: 9, opacity: 0,
+      pane: 'sat', maxNativeZoom: satInfo.maxNativeZoom, maxZoom: 12, opacity: 0,
       attribution: satInfo.daily ? 'Temperatura del mar: NASA MUR (GHRSST) vía GIBS' : 'Satélite: NOAA GOES-West vía NASA GIBS'
     });
     const old = satLayer;
