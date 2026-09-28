@@ -700,7 +700,7 @@
       .map(m => ({ name: m.municipio, cab: m.cabecera, p: m.prob[sonoraDay], mm: m.mm[sonoraDay] }))
       .filter(r => Number.isFinite(r.p))
       .sort((a, b) => b.p - a.p || (b.mm || 0) - (a.mm || 0));
-    const top = rows.slice(0, 10);
+    const top = rows.slice(0, 15);
     const high = rows.filter(r => r.p >= 50).length;
     const wettest = rows.reduce((best, r) => (r.mm > (best ? best.mm : -1) ? r : best), null);
 
@@ -714,7 +714,7 @@
         <table class="mini">
           ${top.map((r, i) => `<tr class="${r.p >= 70 ? 'alta' : ''}"><td class="n">${i + 1}</td><td>${esc(r.name)}</td><td class="p">${r.p}%</td><td class="mm">${(r.mm || 0).toFixed(1)} mm</td></tr>`).join('')}
         </table>
-        <div class="sub" style="margin-top:8px">Los 10 municipios con mayor probabilidad ese día. Resaltados: 70% o más.</div>
+        <div class="sub" style="margin-top:8px">Los 15 municipios con mayor probabilidad ese día. Resaltados: 70% o más.</div>
       </div>`;
 
     el.querySelectorAll('.daytab').forEach(b => b.addEventListener('click', () => {
