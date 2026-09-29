@@ -7,7 +7,8 @@ export async function loadSonoraFrio() {
   const lons = MUNICIPIOS.map(m => m.lon).join(',');
   const vars = [
     'temperature_2m_max', 'temperature_2m_min', 'apparent_temperature_min',
-    'wind_gusts_10m_max', 'wind_direction_10m_dominant', 'snowfall_sum'
+    'wind_gusts_10m_max', 'wind_direction_10m_dominant', 'snowfall_sum',
+    'precipitation_probability_max'
   ].join(',');
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&daily=${vars}&timezone=America/Hermosillo&past_days=1&forecast_days=5`;
 
@@ -29,7 +30,8 @@ export async function loadSonoraFrio() {
       feels: d.apparent_temperature_min || [],
       gust: d.wind_gusts_10m_max || [],
       windDir: d.wind_direction_10m_dominant || [],
-      snow: d.snowfall_sum || []
+      snow: d.snowfall_sum || [],
+      rainProb: d.precipitation_probability_max || []
     };
   });
 

@@ -167,8 +167,18 @@
     </table>
   </div>
 
+  <h2>Descenso fuerte de temperatura</h2>
+  <p class="note" style="margin:0 0 10px">Municipios donde la máxima o la mínima bajó 8 °C o más respecto al día anterior. Se marca "posible frente frío" cuando además el viento dominante ese día viene del N, NNO, NO, NNE u ONO.</p>
+  <div class="panel list-panel">
+    <table class="mini" id="tablaDescenso">
+      <thead><tr><th></th><th>Municipio</th><th style="text-align:right">Máxima</th><th style="text-align:right">Mínima</th><th>Dirección</th><th></th></tr></thead>
+      <tbody id="tbodyDescenso"></tbody>
+    </table>
+    <div id="descensoEmpty" class="empty" hidden>Sin caídas de 8 °C o más de un día a otro para este día.</div>
+  </div>
+
   <h2>Viento</h2>
-  <p class="note" style="margin:0 0 10px">Racha máxima del día. Se marca "posible tolvanera" desde 50 km/h.</p>
+  <p class="note" style="margin:0 0 10px">Racha máxima del día. Con 50 km/h o más: "posible tolvanera" si la probabilidad de lluvia es menor a 30%, o "viento fuerte" si es de 30% o más.</p>
   <div class="panel list-panel">
     <table class="mini" id="tablaViento">
       <thead><tr><th></th><th>Municipio</th><th style="text-align:right">Racha</th><th>Dirección</th><th></th></tr></thead>
@@ -204,6 +214,15 @@
   const fmtT = v => Number.isFinite(v) ? r1(v) + '°' : '—';
 
   const GUST_TOLVANERA = 50;
+  const RAIN_PROB_TOLVANERA = 30;
+  const DROP_UMBRAL = 8;
+  const FRENTE_DIRS = new Set(['N', 'NNO', 'NO', 'NNE', 'ONO']);
+
+  function vientoTag(gust, rainProb){
+    if(!Number.isFinite(gust) || gust < GUST_TOLVANERA) return '';
+    if(Number.isFinite(rainProb) && rainProb >= RAIN_PROB_TOLVANERA) return 'Viento fuerte';
+    return 'Posible tolvanera';
+  }
 
   let frio = null;
   let dia = 0;
@@ -266,16 +285,45 @@
 
   function renderViento(){
     const idx = dia + 1;
-    const rows = frio.municipios.map(m => ({ name: m.municipio, gust: m.gust[idx], dir: m.windDir[idx] })).filter(r => Number.isFinite(r.gust));
+    const rows = frio.municipios.map(m => ({ name: m.municipio, gust: m.gust[idx], dir: m.windDir[idx], rainProb: m.rainProb[idx] })).filter(r => Number.isFinite(r.gust));
     rows.sort((a,b) => b.gust - a.gust);
-    document.getElementById('tbodyViento').innerHTML = rows.map((r,i) => `
+    document.getElementById('tbodyViento').innerHTML = rows.map((r,i) => {
+      const tag = vientoTag(r.gust, r.rainProb);
+      return `
       <tr>
         <td class="n">${i+1}</td>
         <td>${r.name}</td>
         <td class="num">${r1(r.gust)} km/h</td>
         <td>${dir16(r.dir)}</td>
-        <td>${r.gust >= GUST_TOLVANERA ? '<span class="wind-flag">Posible tolvanera</span>' : ''}</td>
-      </tr>`).join('');
+        <td>${tag ? `<span class="wind-flag">${tag}</span>` : ''}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function renderDescenso(){
+    const idx = dia + 1;
+    const rows = frio.municipios.map(m => {
+      const dMax = Number.isFinite(m.tmax[idx-1]) && Number.isFinite(m.tmax[idx]) ? m.tmax[idx-1] - m.tmax[idx] : null;
+      const dMin = Number.isFinite(m.tmin[idx-1]) && Number.isFinite(m.tmin[idx]) ? m.tmin[idx-1] - m.tmin[idx] : null;
+      return { name: m.municipio, dMax, dMin, tmax: m.tmax[idx], tmin: m.tmin[idx], dir: m.windDir[idx] };
+    }).filter(r => (r.dMax !== null && r.dMax >= DROP_UMBRAL) || (r.dMin !== null && r.dMin >= DROP_UMBRAL));
+    rows.sort((a,b) => Math.max(b.dMax||0, b.dMin||0) - Math.max(a.dMax||0, a.dMin||0));
+
+    document.getElementById('descensoEmpty').hidden = !!rows.length;
+    document.getElementById('tbodyDescenso').innerHTML = rows.map((r,i) => {
+      const esFrente = FRENTE_DIRS.has(dir16(r.dir));
+      const maxTxt = r.dMax !== null && r.dMax >= DROP_UMBRAL ? `-${r1(r.dMax)}°` : '—';
+      const minTxt = r.dMin !== null && r.dMin >= DROP_UMBRAL ? `-${r1(r.dMin)}°` : '—';
+      return `
+      <tr>
+        <td class="n">${i+1}</td>
+        <td>${r.name}</td>
+        <td class="num">${maxTxt}</td>
+        <td class="num">${minTxt}</td>
+        <td>${dir16(r.dir)}</td>
+        <td>${esFrente ? '<span class="wind-flag">Posible frente frío</span>' : ''}</td>
+      </tr>`;
+    }).join('');
   }
 
   function renderNieve(){
@@ -293,6 +341,7 @@
     renderDayTabs();
     renderCards();
     renderTemp();
+    renderDescenso();
     renderViento();
     renderNieve();
   }

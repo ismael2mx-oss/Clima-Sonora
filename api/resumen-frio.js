@@ -2,8 +2,10 @@ import { loadSonoraFrio } from './_frio-data.js';
 
 const TZ = 'America/Hermosillo';
 const SITE = 'https://clima-sonora-6fne.vercel.app';
-const DROP_UMBRAL = 8; // °C, caída día a día para considerarse llegada de frente frío
+const DROP_UMBRAL = 8; // °C, caída día a día para considerarse descenso fuerte de temperatura
 const GUST_TOLVANERA = 50; // km/h
+const RAIN_PROB_TOLVANERA = 30; // %, debajo de esto con racha fuerte se considera tolvanera
+const FRENTE_DIRS = new Set(['N', 'NNO', 'NO', 'NNE', 'ONO']); // direcciones típicas tras un frente frío
 
 const DIR16 = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSO', 'SO', 'OSO', 'O', 'ONO', 'NO', 'NNO'];
 const dir16 = deg => Number.isFinite(deg) ? DIR16[Math.round(((deg % 360) + 360) % 360 / 22.5) % 16] : 'n/d';
@@ -88,11 +90,12 @@ function frentesSection(frio) {
       const bits = [];
       if (flagMax) bits.push(`máxima ${t(tmaxPrev)} → ${t(tmaxNow)} (-${round1(dMax)} °C)`);
       if (flagMin) bits.push(`mínima ${t(tminPrev)} → ${t(tminNow)} (-${round1(dMin)} °C)`);
-      hits.push(`${m.municipio}: ${bits.join('; ')}`);
+      const esFrente = FRENTE_DIRS.has(dir16(m.windDir[idx]));
+      hits.push(`${m.municipio}: ${bits.join('; ')}${esFrente ? ' — posible frente frío' : ''}`);
     });
     if (hits.length) {
       alguno = true;
-      out.push(`--- Llega ${dayLabel(frio.dias, k)} ---`);
+      out.push(`--- ${dayLabel(frio.dias, k)} ---`);
       out.push(...hits);
       out.push('');
     }
@@ -101,12 +104,18 @@ function frentesSection(frio) {
   return out.join('\n').trimEnd();
 }
 
+function vientoTag(gust, rainProb) {
+  if (!Number.isFinite(gust) || gust < GUST_TOLVANERA) return '';
+  if (Number.isFinite(rainProb) && rainProb >= RAIN_PROB_TOLVANERA) return 'viento fuerte';
+  return 'posible tolvanera';
+}
+
 function vientoSection(frio) {
   const out = [];
   frio.dias.forEach((_, k) => {
     const idx = k + 1;
     const rows = frio.municipios
-      .map(m => ({ name: m.municipio, gust: m.gust[idx], dir: m.windDir[idx] }))
+      .map(m => ({ name: m.municipio, gust: m.gust[idx], dir: m.windDir[idx], rainProb: m.rainProb[idx] }))
       .filter(r => Number.isFinite(r.gust))
       .sort((a, b) => b.gust - a.gust);
 
@@ -114,12 +123,14 @@ function vientoSection(frio) {
     if (!rows.length) {
       out.push('Sin datos de viento disponibles para este día.');
     } else {
-      const tolvaneras = rows.filter(r => r.gust >= GUST_TOLVANERA).length;
-      out.push(`Municipios con racha de ${GUST_TOLVANERA} km/h o más (posible tolvanera): ${tolvaneras} de ${rows.length}`);
+      const tagged = rows.map(r => ({ ...r, tag: vientoTag(r.gust, r.rainProb) }));
+      const tolvaneras = tagged.filter(r => r.tag === 'posible tolvanera').length;
+      const fuertes = tagged.filter(r => r.tag === 'viento fuerte').length;
+      out.push(`Municipios con racha de ${GUST_TOLVANERA} km/h o más: ${tolvaneras + fuertes} de ${rows.length} (posible tolvanera: ${tolvaneras} · viento fuerte con lluvia probable: ${fuertes})`);
+      out.push(`"Posible tolvanera" = racha de ${GUST_TOLVANERA} km/h o más con menos de ${RAIN_PROB_TOLVANERA}% de probabilidad de lluvia. "Viento fuerte" = misma racha pero con ${RAIN_PROB_TOLVANERA}% o más de probabilidad de lluvia.`);
       out.push('Municipios de mayor a menor racha (racha máxima; dirección dominante):');
-      rows.forEach((r, i) => {
-        const tag = r.gust >= GUST_TOLVANERA ? ' — posible tolvanera' : '';
-        out.push(`${String(i + 1).padStart(3, ' ')}. ${r.name}: ${round1(r.gust)} km/h, ${dir16(r.dir)}${tag}`);
+      tagged.forEach((r, i) => {
+        out.push(`${String(i + 1).padStart(3, ' ')}. ${r.name}: ${round1(r.gust)} km/h, ${dir16(r.dir)}${r.tag ? ' — ' + r.tag : ''}`);
       });
     }
     out.push('');
@@ -193,14 +204,14 @@ export async function buildResumenFrio() {
   if (frioR.status === 'rejected') {
     parts.push(sep, 'RESUMEN POR DÍA', sep, failure('los datos de Open-Meteo', frioR.reason), '');
     parts.push(sep, 'TEMPERATURAS MÍNIMAS POR DÍA (72 MUNICIPIOS)', sep, failure('los datos de Open-Meteo', frioR.reason), '');
-    parts.push(sep, 'LLEGADA DE FRENTE FRÍO', sep, failure('los datos de Open-Meteo', frioR.reason), '');
+    parts.push(sep, 'DESCENSO FUERTE DE TEMPERATURA', sep, failure('los datos de Open-Meteo', frioR.reason), '');
     parts.push(sep, 'VIENTO', sep, failure('los datos de Open-Meteo', frioR.reason), '');
     parts.push(sep, 'NIEVE EN LA SIERRA', sep, failure('los datos de Open-Meteo', frioR.reason), '');
   } else {
     const frio = frioR.value;
     parts.push(sep, 'RESUMEN POR DÍA', sep, resumenPorDiaSection(frio), '');
     parts.push(sep, 'TEMPERATURAS MÍNIMAS POR DÍA (72 MUNICIPIOS)', sep, minimasPorDiaSection(frio), '');
-    parts.push(sep, `LLEGADA DE FRENTE FRÍO (caída de ${DROP_UMBRAL} °C o más de un día a otro)`, sep, frentesSection(frio), '');
+    parts.push(sep, `DESCENSO FUERTE DE TEMPERATURA (caída de ${DROP_UMBRAL} °C o más de un día a otro)`, sep, frentesSection(frio), '');
     parts.push(sep, 'VIENTO', sep, vientoSection(frio), '');
     parts.push(sep, 'NIEVE EN LA SIERRA', sep, nieveSection(frio), '');
   }
