@@ -177,7 +177,7 @@ function rainSection(rain) {
 
 const failure = (what, err) => `[No disponible: no se pudo consultar ${what}. Motivo: ${err && err.message ? err.message : 'error desconocido'}]`;
 
-export default async function handler(req, res) {
+export async function buildResumenCiclones() {
   const [stormsR, outlookR, rainR] = await Promise.allSettled([
     loadPacificStorms(),
     loadOutlookData(),
@@ -219,7 +219,16 @@ export default async function handler(req, res) {
   parts.push(rainR.status === 'rejected' ? failure('la lluvia de Open-Meteo', rainR.reason) : rainSection(rainR.value));
   parts.push('');
 
-  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-  res.setHeader('Cache-Control', 's-maxage=900, stale-while-revalidate=300');
-  res.status(200).send(parts.join('\n'));
+  return parts.join('\n');
+}
+
+export default async function handler(req, res) {
+  try {
+    const text = await buildResumenCiclones();
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Cache-Control', 's-maxage=900, stale-while-revalidate=300');
+    res.status(200).send(text);
+  } catch (err) {
+    res.status(502).send(`No se pudo generar el resumen de ciclones. Motivo: ${err.message || 'error desconocido'}`);
+  }
 }
