@@ -10,6 +10,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   :root{
     --ink: #0F1729;
@@ -117,8 +119,32 @@
     color: var(--slate);
     text-align:center;
   }
+  .frente-card{ padding: 18px; margin-bottom: 14px; border-color: rgba(215,162,76,.55); box-shadow: 0 0 0 1px rgba(215,162,76,.12); }
+  .frente-head{ display:flex; align-items:center; gap: 10px; margin-bottom: 12px; flex-wrap:wrap; }
+  .sim-badge{ font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.1em; background:#FF9F1C; color:var(--ink); padding:2px 8px; border-radius:6px; font-weight:700; }
+  .f-row{ padding: 10px 0; border-top: 1px solid var(--rule); }
+  .f-row:first-of-type{ border-top:none; padding-top:0; }
+  .f-label{ font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--slate); margin-bottom:4px; }
+  .f-main{ font-size:18px; font-weight:600; color:var(--brass); }
+  .f-main.muted{ color:var(--slate); font-weight:500; font-size:15px; }
+  .f-sub{ font-size:12px; color:var(--slate); line-height:1.5; margin-top:2px; }
+  .f-quote{ margin: 6px 0 2px; padding-left: 10px; border-left: 2px solid var(--rule); font-size:12.5px; line-height:1.5; color:var(--paper); }
+  .f-counters{ display:grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0 6px; }
+  .f-counter{ background: var(--panel-light); border-radius: 10px; padding: 10px 8px; text-align:center; }
+  .f-counter .n{ font-family:'IBM Plex Mono',monospace; font-size:22px; font-weight:600; color:var(--brass); }
+  .f-counter .l{ font-size:11px; color:var(--slate); margin-top:2px; }
+  details.f-det{ margin-top:6px; font-size:12.5px; }
+  details.f-det summary{ cursor:pointer; color:var(--brass); }
+  details.f-det p{ margin:6px 0 0; line-height:1.55; color:var(--paper); }
+  .map-panel{ overflow:hidden; margin-bottom: 8px; }
+  #frenteMap{ width:100%; height: clamp(320px, 56vh, 520px); background:#0a1020; }
+  .map-legend{ display:flex; flex-wrap:wrap; gap: 6px 16px; font-size:12px; margin-bottom: 18px; }
+  .map-legend .dot{ width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:6px; }
+  .map-legend .ln{ width:20px; height:4px; background:#2F6BFF; display:inline-block; margin-right:6px; vertical-align:2px; border-radius:2px; }
+  .leaflet-popup-content{ font-family:'IBM Plex Sans',sans-serif; font-size:13px; line-height:1.5; }
   @media (max-width: 640px){
     .cards{ grid-template-columns: 1fr; }
+    .f-counters{ grid-template-columns: repeat(2, 1fr); }
   }
   @media (max-width: 520px){
     .daytab .ds{ display:none; }
@@ -132,6 +158,22 @@
   <span class="eyebrow">SONORA — 72 MUNICIPIOS</span>
   <h1>Frentes fríos, heladas y viento</h1>
   <p class="subtitle" id="subtitle">Cargando información de Open-Meteo…</p>
+
+  <section id="frenteSection">
+    <div class="panel frente-card">
+      <div class="frente-head"><span class="eyebrow">ESTADO DEL FRENTE FRÍO</span><span id="frenteSim" class="sim-badge" hidden>SIMULACIÓN</span></div>
+      <div id="frenteBody"><p class="f-sub">Consultando SMN, WPC/NOAA y Open-Meteo…</p></div>
+    </div>
+    <div class="panel map-panel"><div id="frenteMap"></div></div>
+    <div class="map-legend">
+      <span><span class="ln"></span>Frente frío (WPC)</span>
+      <span><span class="dot" style="background:#FF3B30"></span>Frente encima (&lt;50 km)</span>
+      <span><span class="dot" style="background:#FF9F1C"></span>Se acerca (50-300 km)</span>
+      <span><span class="dot" style="background:#6EA8FF"></span>Ya pasó</span>
+      <span><span class="dot" style="background:#8993A8"></span>Sin influencia cercana</span>
+      <span><span class="dot" style="background:transparent;border:2px solid #FFE066;width:8px;height:8px"></span>Paso probable (Open-Meteo)</span>
+    </div>
+  </section>
 
   <div id="cards" class="cards" hidden>
     <div class="panel card">
@@ -201,7 +243,7 @@
     <a href="/">Volver al inicio</a>
   </div>
 
-  <footer>DATOS: OPEN-METEO</footer>
+  <footer>DATOS: SMN · WPC/NOAA · OPEN-METEO · MAPA: ESRI</footer>
 </div>
 
 <script>
@@ -361,7 +403,146 @@
     }
   }
 
+  // ===== Estado del frente frío =====
+  const TZ_SON = 'America/Hermosillo';
+  const fFull = new Intl.DateTimeFormat('es-MX', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TZ_SON });
+  const fShort = new Intl.DateTimeFormat('es-MX', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TZ_SON });
+  const fDia = new Intl.DateTimeFormat('es-MX', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  const fmtLat = v => Math.abs(v).toFixed(1) + '°' + (v >= 0 ? 'N' : 'S');
+  const fmtLon = v => Math.abs(v).toFixed(1) + '°' + (v >= 0 ? 'E' : 'O');
+  const fromLocal = s => new Date(s + ':00-07:00');
+  const diaTxt = d => fDia.format(new Date(d + 'T12:00:00Z'));
+
+  const ESTADO_COLOR = { encima: '#FF3B30', se_acerca: '#FF9F1C', ya_paso: '#6EA8FF', sin_influencia: '#8993A8' };
+  const ESTADO_TXT = { encima: 'Frente encima', se_acerca: 'El frente se acerca', ya_paso: 'El frente ya pasó', sin_influencia: 'Sin influencia cercana' };
+
+  let fmap = null;
+  function ensureMap(){
+    if(fmap) return fmap;
+    fmap = L.map('frenteMap', { scrollWheelZoom: false, zoomSnap: 0.25, zoomDelta: 0.5 });
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+      attribution: 'Tiles &copy; Esri &mdash; Source: Esri, HERE, Garmin, USGS, Intermap', maxZoom: 12
+    }).addTo(fmap);
+    fmap.fitBounds([[26.2, -115.8], [32.9, -108.0]], { padding: [6, 6] });
+    return fmap;
+  }
+
+  function drawMap(e){
+    const map = ensureMap();
+    (e.wpc.ok ? e.wpc.frentes : []).forEach(f => {
+      const pts = f.puntos;
+      L.polyline(pts, { color: '#FFFFFF', weight: 9, opacity: .9, interactive: false }).addTo(map);
+      L.polyline(pts, { color: '#2F6BFF', weight: 5, opacity: 1 }).bindTooltip('Frente frío (WPC)', { sticky: true }).addTo(map);
+    });
+    e.municipios.forEach(m => {
+      const estado = m.wpc ? m.wpc.estado : null;
+      const color = ESTADO_COLOR[estado] || '#8993A8';
+      const paso = m.paso;
+      const mk = L.circleMarker([m.lat, m.lon], {
+        radius: paso ? 7 : 5, color: paso ? '#FFE066' : '#0F1729', weight: paso ? 3 : 1, fillColor: color, fillOpacity: 1
+      });
+      const lines = [`<b>${esc(m.municipio)}</b>`];
+      if(m.wpc) lines.push(`${ESTADO_TXT[estado]} · ${m.wpc.distKm} km del frente`);
+      else if(!e.wpc.ok) lines.push('Posición del frente no disponible');
+      if(paso) lines.push(`Paso probable: ${fShort.format(fromLocal(paso.estimado))} h (${paso.nSenales} de 4 señales)`, esc(paso.senales.map(s => s.texto).join('; ')));
+      mk.bindPopup(lines.join('<br>')).addTo(map);
+    });
+    setTimeout(() => map.invalidateSize(), 150);
+  }
+
+  function nombres(arr){
+    return arr.length ? `<details class="f-det"><summary>Ver municipios (${arr.length})</summary><p>${arr.map(esc).join(', ')}</p></details>` : '';
+  }
+
+  function renderFrente(e){
+    const body = document.getElementById('frenteBody');
+    document.getElementById('frenteSim').hidden = !e.simulacion;
+    const rows = [];
+
+    // SMN
+    if(!e.smn.ok){
+      rows.push(`<div class="f-row"><div class="f-label">Oficial SMN</div><div class="f-main muted">No disponible</div><div class="f-sub">${esc(e.smn.error)}</div></div>`);
+    }else if(!e.smn.frentes.length){
+      rows.push(`<div class="f-row"><div class="f-label">Oficial SMN</div><div class="f-main muted">Sin frente frío anunciado por el SMN</div></div>`);
+    }else{
+      rows.push(`<div class="f-row"><div class="f-label">Oficial SMN</div>${e.smn.frentes.map(f => `
+        <div class="f-main">Frente frío núm. ${f.numero}</div>
+        <div class="f-sub">Aviso${f.noAviso ? ' No. ' + f.noAviso : ''}${f.emitido ? ' · ' + fFull.format(new Date(f.emitido)) + ' h (hora de Sonora)' : ''} · ${esc(f.fuente)}</div>
+        <div class="f-quote">${esc(f.frase)}</div>`).join('')}</div>`);
+    }
+    const caidas = e.smn.ok ? e.smn.paginas.filter(p => !p.ok) : [];
+    if(caidas.length) rows.push(`<div class="f-sub">No se pudo leer: ${caidas.map(p => esc(p.nombre) + ' (' + esc(p.error) + ')').join('; ')}.</div>`);
+
+    // WPC
+    if(!e.wpc.ok){
+      rows.push(`<div class="f-row"><div class="f-label">Posición WPC</div><div class="f-main muted">No disponible</div><div class="f-sub">${esc(e.wpc.error)}</div></div>`);
+    }else{
+      const w = e.wpc;
+      let desc;
+      if(w.frentes.length){
+        desc = `${w.frentes.length === 1 ? 'Un frente frío' : w.frentes.length + ' frentes fríos'} dentro o a menos de 300 km de Sonora` +
+          ` (${w.frentes.map(f => f.distCajaKm === 0 ? 'cruza Sonora' : 'a ' + f.distCajaKm + ' km').join(', ')}).`;
+      }else if(w.masCercano){
+        desc = `Sin frente frío a menos de 300 km de Sonora. El más cercano está a ${w.masCercano.distKm} km (cerca de ${fmtLat(w.masCercano.lat)} ${fmtLon(w.masCercano.lon)}).`;
+      }else{
+        desc = 'El boletín no trae frentes fríos.';
+      }
+      const horas = w.valido ? Math.round((Date.now() - Date.parse(w.valido)) / 3600000) : null;
+      const info = (w.valido ? 'Análisis válido ' + fFull.format(new Date(w.valido)) + ' h' + (horas > 9 ? ` (${horas} h de antigüedad)` : '') : 'Hora del análisis no disponible') +
+        (w.fuente === 'simulación' ? ' · SIMULACIÓN' : ' · boletín codificado WPC/NOAA');
+      rows.push(`<div class="f-row"><div class="f-label">Posición WPC</div><div class="f-main${w.frentes.length ? '' : ' muted'}">${esc(desc)}</div><div class="f-sub">${esc(info)}</div></div>`);
+    }
+
+    // Municipios
+    const g = e.grupos;
+    const sin = [];
+    if(!e.wpc.ok) sin.push('sin clasificación WPC');
+    if(!e.senales.ok) sin.push('sin señales de Open-Meteo');
+    rows.push(`<div class="f-row"><div class="f-label">Municipios afectados${sin.length ? ' (' + sin.join(', ') + ')' : ''}</div>
+      <div class="f-counters">
+        <div class="f-counter"><div class="n">${g.hoy.length}</div><div class="l">Hoy</div></div>
+        <div class="f-counter"><div class="n">${g.manana.length}</div><div class="l">Mañana</div></div>
+        <div class="f-counter"><div class="n">${g.seAcerca.length}</div><div class="l">Se acerca</div></div>
+        <div class="f-counter"><div class="n">${g.yaPaso.length}</div><div class="l">Ya pasó</div></div>
+      </div>
+      ${g.hoy.length ? `<div class="f-sub">Hoy (${diaTxt(e.fechas.hoy)})</div>${nombres(g.hoy)}` : ''}
+      ${g.manana.length ? `<div class="f-sub">Mañana (${diaTxt(e.fechas.manana)})</div>${nombres(g.manana)}` : ''}
+      ${g.pasadoManana.length ? `<div class="f-sub">Pasado mañana (${diaTxt(e.fechas.pasadoManana)})</div>${nombres(g.pasadoManana)}` : ''}
+      ${g.masAdelante.length ? `<div class="f-sub">Más adelante (dentro de las 72 h)</div>${nombres(g.masAdelante)}` : ''}
+      ${g.seAcerca.length ? `<div class="f-sub">Se acerca (50-300 km, sin pasar)</div>${nombres(g.seAcerca)}` : ''}
+      ${g.yaPaso.length ? `<div class="f-sub">Ya pasó</div>${nombres(g.yaPaso)}` : ''}</div>`);
+
+    // Paso probable
+    if(!e.senales.ok){
+      rows.push(`<div class="f-row"><div class="f-label">Paso de frente probable</div><div class="f-main muted">No disponible</div><div class="f-sub">${esc(e.senales.error)}</div></div>`);
+    }else{
+      const pasos = e.municipios.filter(m => m.paso).sort((a, b) => a.paso.estimado.localeCompare(b.paso.estimado));
+      rows.push(`<div class="f-row"><div class="f-label">Paso de frente probable (2 o más señales, próximas 72 h)</div>
+        ${pasos.length ? `<details class="f-det"><summary>${pasos.length} municipio(s)</summary><p>${pasos.map(m => `<b>${esc(m.municipio)}</b>: ${fShort.format(fromLocal(m.paso.estimado))} h — ${m.paso.nSenales} de 4 señales: ${esc(m.paso.senales.map(s => s.texto).join('; '))}`).join('<br>')}</p></details>`
+          : '<div class="f-sub">Ningún municipio cumple 2 o más señales en las próximas 72 h.</div>'}
+        <div class="f-sub">Señales: viento del N/NO/NE sostenido 3 h, presión +3 hPa en 12 h, punto de rocío −5 °C en 12 h y temperatura −5 °C. Cada una se confirma contra la misma hora del día anterior para descartar el ciclo día-noche. La hora es la de mayor coincidencia.</div></div>`);
+    }
+    body.innerHTML = rows.join('');
+  }
+
+  async function initFrente(){
+    const body = document.getElementById('frenteBody');
+    try{
+      const q = new URLSearchParams(location.search).get('simular') === '1' ? '?simular=1' : '';
+      const res = await fetch('/api/sonora-frente' + q);
+      const data = await res.json();
+      if(!res.ok) throw new Error(data?.error?.message || 'Error al consultar el estado del frente frío.');
+      renderFrente(data);
+      drawMap(data);
+    }catch(err){
+      body.innerHTML = `<div class="f-row"><div class="f-main muted">No disponible</div><div class="f-sub">${esc(err.message)}</div></div>`;
+      ensureMap();
+    }
+  }
+
   init();
+  initFrente();
 </script>
 </body>
 </html>

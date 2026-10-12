@@ -351,29 +351,38 @@ function analizarPaso(h, ahoraStr) {
   const n = tiempos.length;
   const ok = (...v) => v.every(Number.isFinite);
 
+  // Los umbrales (12 h) son los pedidos, pero cada señal se confirma también contra la misma hora
+  // del día anterior: en el desierto el ciclo día-noche solo ya produce esos cambios todos los días.
   const sig = { viento: new Array(n).fill(false), presion: new Array(n).fill(false), rocio: new Array(n).fill(false), temperatura: new Array(n).fill(false) };
-  for (let t = 0; t < n; t++) {
-    if (t >= 12 && ok(D[t], D[t - 1], D[t - 12])) sig.viento[t] = enArcoNorte(D[t]) && enArcoNorte(D[t - 1]) && !enArcoNorte(D[t - 12]);
-    if (t >= 12 && ok(P[t], P[t - 12])) sig.presion[t] = P[t] - P[t - 12] > 3;
-    if (t >= 12 && ok(dp[t], dp[t - 12])) sig.rocio[t] = dp[t - 12] - dp[t] > 5;
-    if (t >= 24 && ok(T[t], T[t - 24])) sig.temperatura[t] = T[t - 24] - T[t] >= 5;
+  for (let t = 24; t < n; t++) {
+    if (ok(D[t], D[t + 1], D[t + 2], D[t - 12], D[t - 24])) {
+      sig.viento[t] = enArcoNorte(D[t]) && enArcoNorte(D[t + 1]) && enArcoNorte(D[t + 2]) && !enArcoNorte(D[t - 12]) && !enArcoNorte(D[t - 24]);
+    }
+    if (ok(P[t], P[t - 12], P[t - 24])) sig.presion[t] = P[t] - P[t - 12] > 3 && P[t] > P[t - 24];
+    if (ok(dp[t], dp[t - 12], dp[t - 24])) sig.rocio[t] = dp[t - 12] - dp[t] > 5 && dp[t - 24] - dp[t] > 5;
+    if (ok(T[t], T[t - 24])) sig.temperatura[t] = T[t - 24] - T[t] >= 5;
   }
 
   const activo = (tipo, t) => { for (let u = t; u >= Math.max(0, t - 3); u--) if (sig[tipo][u]) return u; return -1; };
   const detalle = {
-    viento: u => `viento cambia al ${compass(D[u])} (${Math.round(D[u])}°)`,
+    viento: u => `viento del ${compass(D[u])} (${Math.round(D[u])}°) sostenido 3 h`,
     presion: u => `presión +${(P[u] - P[u - 12]).toFixed(1)} hPa en 12 h`,
     rocio: u => `punto de rocío −${(dp[u - 12] - dp[u]).toFixed(1)} °C en 12 h`,
     temperatura: u => `temperatura −${(T[u - 24] - T[u]).toFixed(1)} °C respecto a 24 h antes`
   };
 
+  // Se elige la hora con más señales a la vez (a igualdad, la primera), no la primera coincidencia.
+  let mejor = null;
   for (let t = i0; t < n; t++) {
     const act = Object.keys(sig).map(tipo => ({ tipo, u: activo(tipo, t) })).filter(a => a.u >= 0);
-    if (act.length >= 2) {
-      return { estimado: tiempos[t], senales: act.map(a => ({ tipo: a.tipo, texto: detalle[a.tipo](a.u) })) };
-    }
+    if (act.length >= 2 && (!mejor || act.length > mejor.act.length)) mejor = { t, act };
   }
-  return null;
+  if (!mejor) return null;
+  return {
+    estimado: tiempos[mejor.t],
+    nSenales: mejor.act.length,
+    senales: mejor.act.map(a => ({ tipo: a.tipo, texto: detalle[a.tipo](a.u) }))
+  };
 }
 
 // ---------- Estado combinado ----------
@@ -403,18 +412,17 @@ export async function loadFrenteEstado({ simular = false } = {}) {
     paso: senales ? analizarPaso(senales[i], ahoraStr) : null
   }));
 
-  const dia = m => (m.paso ? m.paso.estimado.slice(0, 10) : null);
+  // Si el WPC ya ubica el frente más allá del municipio ("ya pasó"), ese análisis prevalece sobre las señales.
+  const dia = m => (m.paso && m.wpc?.estado !== 'ya_paso' ? m.paso.estimado.slice(0, 10) : null);
   const nombres = fn => municipios.filter(fn).map(m => m.municipio);
   const grupos = {
     hoy: nombres(m => m.wpc?.estado === 'encima' || dia(m) === hoy),
     manana: nombres(m => dia(m) === manana && m.wpc?.estado !== 'encima'),
     pasadoManana: nombres(m => dia(m) === pasadoManana && m.wpc?.estado !== 'encima'),
+    masAdelante: nombres(m => dia(m) > pasadoManana && m.wpc?.estado !== 'encima'),
     seAcerca: nombres(m => m.wpc?.estado === 'se_acerca' && !m.paso),
     yaPaso: nombres(m => m.wpc?.estado === 'ya_paso')
   };
-  const hoySet = new Set(grupos.hoy);
-  grupos.manana = grupos.manana.filter(n => !hoySet.has(n));
-  grupos.pasadoManana = grupos.pasadoManana.filter(n => !hoySet.has(n) && !grupos.manana.includes(n));
 
   const error = r => (r.status === 'rejected' ? (r.reason?.message || 'error desconocido') : null);
   return {

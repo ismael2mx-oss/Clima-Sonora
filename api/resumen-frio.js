@@ -244,6 +244,7 @@ function frenteSection(e) {
   L.push(`    Hoy (${diaCorto(e.fechas.hoy)}): ${listaNombres(g.hoy)}`);
   L.push(`    Mañana (${diaCorto(e.fechas.manana)}): ${listaNombres(g.manana)}`);
   L.push(`    Pasado mañana (${diaCorto(e.fechas.pasadoManana)}): ${listaNombres(g.pasadoManana)}`);
+  L.push(`    Más adelante (dentro de las 72 h): ${listaNombres(g.masAdelante)}`);
   L.push(`    Se acerca (WPC, a 50-300 km, sin pasar y sin paso estimado en 72 h): ${listaNombres(g.seAcerca)}`);
   L.push(`    Ya pasó (WPC): ${listaNombres(g.yaPaso)}`);
 
@@ -253,8 +254,8 @@ function frenteSection(e) {
     const pasos = e.municipios.filter(m => m.paso).sort((a, b) => a.paso.estimado.localeCompare(b.paso.estimado));
     L.push('- Paso de frente probable (2 o más señales en Open-Meteo, próximas 72 h, hora de Sonora):');
     if (!pasos.length) L.push('    Ningún municipio cumple 2 o más señales en las próximas 72 h.');
-    pasos.forEach(m => L.push(`    ${m.municipio}: ${fmtLocal(m.paso.estimado)} — ${m.paso.senales.map(s => s.texto).join('; ')}`));
-    L.push('  Señales: cambio de viento a N/NO/NE, subida de presión de más de 3 hPa en 12 h, baja del punto de rocío de más de 5 °C en 12 h y baja de temperatura de 5 °C o más respecto a la misma hora 24 h antes (así se descarta el ciclo día-noche).');
+    pasos.forEach(m => L.push(`    ${m.municipio}: ${fmtLocal(m.paso.estimado)} — ${m.paso.nSenales} de 4 señales: ${m.paso.senales.map(s => s.texto).join('; ')}`));
+    L.push('  Señales: viento del N/NO/NE sostenido 3 h, subida de presión de más de 3 hPa en 12 h, baja del punto de rocío de más de 5 °C en 12 h y baja de temperatura de 5 °C o más. Para descartar el ciclo día-noche, cada señal se confirma también contra la misma hora del día anterior. La hora estimada es la de mayor coincidencia de señales.');
   }
   return L.join('\n');
 }
