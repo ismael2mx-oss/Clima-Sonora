@@ -242,8 +242,10 @@ function frenteSection(e) {
   const total = e.municipios.length;
   const suma = g.encima.length + g.seAcerca.length + g.yaPaso.length + g.paso.length + g.aire.length + g.sinSenal.length;
   L.push(`- Municipios afectados (clasificación de los ${total}, cada uno en una sola categoría):`);
-  L.push(`    Frente encima (WPC, a menos de 50 km): ${listaNombres(g.encima)}`);
-  L.push(`    Se acerca (WPC, a 50-300 km, sin pasar): ${listaNombres(g.seAcerca)}`);
+  // La distancia al frente frío más cercano se mide desde las coordenadas de la cabecera municipal.
+  const conKm = cat => e.municipios.filter(m => m.categoria === cat).sort((a, b) => a.wpc.distKm - b.wpc.distKm).map(m => `${m.municipio} (${m.wpc.distKm} km)`);
+  L.push(`    Frente encima (WPC, a menos de 50 km de la cabecera municipal): ${listaNombres(conKm('encima'))}`);
+  L.push(`    Se acerca (WPC, a 50-300 km de la cabecera municipal, sin pasar): ${listaNombres(conKm('se_acerca'))}`);
   L.push(`    Ya pasó (WPC): ${listaNombres(g.yaPaso)}`);
 
   if (!e.senales.ok) {
@@ -252,7 +254,7 @@ function frenteSection(e) {
     L.push(`    Paso de frente probable (subida de presión obligatoria y 3 de 4 señales; próximas 72 h, hora de Sonora): ${g.paso.length} municipio(s) en ${e.eventos.length} evento(s)`);
     if (!e.eventos.length) L.push('      Ningún municipio cumple los criterios.');
     e.eventos.forEach(ev => {
-      L.push(`      Evento ${ev.numero} (${fmtLocal(ev.desde)} a ${fmtLocal(ev.hasta)}): ${ev.municipios.length} municipio(s)${ev.nota ? ` — Nota: ${ev.nota}` : ''}`);
+      L.push(`      Evento ${ev.numero} (${fmtLocal(ev.desde)} a ${fmtLocal(ev.hasta)}): ${ev.municipios.length} municipio(s)${ev.etiqueta ? ` — ${ev.etiqueta}` : ''}${ev.nota ? ` — Nota: ${ev.nota}` : ''}`);
       ev.municipios.forEach(m => L.push(`        ${m.municipio}: ${fmtLocal(m.estimado)} — ${m.nSenales} de 4 señales: ${m.senales.map(s => s.texto).join('; ')}`));
     });
 
@@ -266,7 +268,7 @@ function frenteSection(e) {
   L.push(`    Suma de categorías: ${suma} de ${total}${suma === total ? '' : ' (REVISAR: no coincide)'}`);
 
   if (e.senales.ok) {
-    L.push('  Criterios: señales = viento del N/NO/NE sostenido 3 h, subida de presión de más de 3 hPa en 12 h (obligatoria para paso de frente), baja del punto de rocío de más de 5 °C en 12 h y baja de temperatura de 5 °C o más; cada una se confirma contra la misma hora del día anterior para descartar el ciclo día-noche. Eventos distintos: más de 36 h entre pasos de un mismo municipio, o viento que pasa de N/NO a E/ENE. "Orden inconsistente": la mediana de los municipios del sur (lat. 28° o menos) llega más de 12 h antes que la de los del norte (lat. 30° o más).');
+    L.push('  Criterios: señales = viento del N/NO/NE sostenido 3 h, subida de presión de más de 3 hPa en 12 h (obligatoria para paso de frente), baja del punto de rocío de más de 5 °C en 12 h y baja de temperatura de 5 °C o más; cada una se confirma contra la misma hora del día anterior para descartar el ciclo día-noche. Eventos: se ordenan los pasos estimados de todos los municipios por hora y se abre un evento nuevo cuando hay más de 18 h entre un paso y el siguiente; un evento con menos de 5 municipios es "señal aislada (baja confianza)". "Orden inconsistente": la mediana de los municipios del sur (lat. 28° o menos) llega más de 12 h antes que la de los del norte (lat. 30° o más).');
   }
   return L.join('\n');
 }

@@ -425,67 +425,47 @@ function analizarPaso(h, ahoraStr) {
   return { pasos, aire };
 }
 
-const N_NO = new Set(['N', 'NNO', 'NO']);
-const E_ENE = new Set(['E', 'ENE']);
 const HORA_MS = 3600000;
-const SEPARACION_EVENTOS_H = 36;
+const SEPARACION_EVENTOS_H = 18;
+const MIN_MUNICIPIOS_EVENTO = 5;
 const ORDEN_TOLERANCIA_H = 12;
 
 const mediana = arr => { const s = arr.slice().sort((a, b) => a - b); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 
-// Agrupa los pasos estimados en eventos. En un mismo municipio, dos pasos son eventos distintos si los separan
-// más de 36 h o si el viento pasa de N/NO a E/ENE. Los municipios con un solo paso se asignan al evento
-// cuya hora central les queda más cerca.
+// Agrupa los pasos estimados de todos los municipios por cercanía en el tiempo: se ordenan por hora y se abre
+// un evento nuevo cuando hay más de 18 h entre un paso y el siguiente. Un evento con menos de 5 municipios
+// se marca como señal aislada de baja confianza.
 function agruparEventos(candidatos) {
   const filas = [];
-  candidatos.forEach(c => {
-    let ord = 1;
-    c.pasos.forEach((p, k) => {
-      if (k > 0) {
-        const prev = c.pasos[k - 1];
-        const gapH = (localStringToMs(p.estimado) - localStringToMs(prev.estimado)) / HORA_MS;
-        if (gapH > SEPARACION_EVENTOS_H || (N_NO.has(compass(prev.dir)) && E_ENE.has(compass(p.dir)))) ord++;
-      }
-      filas.push({ c, p, ms: localStringToMs(p.estimado), ord });
-    });
-  });
+  candidatos.forEach(c => c.pasos.forEach(p => filas.push({ c, p, ms: localStringToMs(p.estimado) })));
   if (!filas.length) return [];
+  filas.sort((a, b) => a.ms - b.ms);
 
-  const maxOrd = Math.max(...filas.map(f => f.ord));
-  if (maxOrd > 1) {
-    const multi = new Set(filas.filter(f => f.ord > 1).map(f => f.c));
-    const centros = [];
-    for (let k = 1; k <= maxOrd; k++) {
-      const ms = filas.filter(f => multi.has(f.c) && f.ord === k).map(f => f.ms);
-      centros.push(ms.length ? ms.reduce((a, b) => a + b, 0) / ms.length : Infinity);
-    }
-    filas.filter(f => !multi.has(f.c)).forEach(f => {
-      f.ord = centros.reduce((mejor, cen, i) => (Math.abs(f.ms - cen) < Math.abs(f.ms - centros[mejor]) ? i : mejor), 0) + 1;
-    });
+  const grupos = [[filas[0]]];
+  for (let i = 1; i < filas.length; i++) {
+    if ((filas[i].ms - filas[i - 1].ms) / HORA_MS > SEPARACION_EVENTOS_H) grupos.push([]);
+    grupos[grupos.length - 1].push(filas[i]);
   }
 
-  const eventos = [];
-  for (let k = 1; k <= maxOrd; k++) {
+  return grupos.map((g, k) => {
+    // Un municipio aparece una vez por evento, con su paso más temprano.
     const porMunicipio = new Map();
-    filas.filter(f => f.ord === k).forEach(f => {
-      const actual = porMunicipio.get(f.c);
-      if (!actual || f.ms < actual.ms) porMunicipio.set(f.c, f);
-    });
-    if (!porMunicipio.size) continue;
+    g.forEach(f => { const actual = porMunicipio.get(f.c); if (!actual || f.ms < actual.ms) porMunicipio.set(f.c, f); });
     const miembros = Array.from(porMunicipio.values()).sort((a, b) => a.ms - b.ms);
     const norte = miembros.filter(f => f.c.lat >= 30).map(f => f.ms);
     const sur = miembros.filter(f => f.c.lat <= 28).map(f => f.ms);
-    let nota = null;
-    if (norte.length >= 2 && sur.length >= 2 && mediana(sur) < mediana(norte) - ORDEN_TOLERANCIA_H * HORA_MS) nota = 'orden inconsistente, revisar';
-    eventos.push({
-      numero: eventos.length + 1,
+    const ordenMal = norte.length >= 2 && sur.length >= 2 && mediana(sur) < mediana(norte) - ORDEN_TOLERANCIA_H * HORA_MS;
+    const aislado = miembros.length < MIN_MUNICIPIOS_EVENTO;
+    return {
+      numero: k + 1,
       desde: miembros[0].p.estimado,
       hasta: miembros[miembros.length - 1].p.estimado,
-      nota,
+      nota: ordenMal ? 'orden inconsistente, revisar' : null,
+      aislado,
+      etiqueta: aislado ? 'señal aislada (baja confianza)' : null,
       municipios: miembros.map(f => ({ municipio: f.c.municipio, estimado: f.p.estimado, nSenales: f.p.nSenales, senales: f.p.senales }))
-    });
-  }
-  return eventos;
+    };
+  });
 }
 
 // ---------- Estado combinado ----------

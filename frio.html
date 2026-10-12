@@ -512,6 +512,8 @@
     if(!e.wpc.ok) sin.push('sin clasificación WPC');
     if(!e.senales.ok) sin.push('sin señales de Open-Meteo');
     const cercanos = g.encima.length + g.seAcerca.length;
+    // La distancia al frente frío más cercano se mide desde la cabecera municipal.
+    const conKm = cat => e.municipios.filter(m => m.categoria === cat).sort((a, b) => a.wpc.distKm - b.wpc.distKm).map(m => `${m.municipio} (${m.wpc.distKm} km)`);
     rows.push(`<div class="f-row"><div class="f-label">Municipios afectados (${total})${sin.length ? ' · ' + sin.join(', ') : ''}</div>
       <div class="f-counters">
         <div class="f-counter"><div class="n">${g.paso.length}</div><div class="l">Paso probable</div></div>
@@ -520,8 +522,8 @@
         <div class="f-counter"><div class="n">${g.yaPaso.length}</div><div class="l">Ya pasó</div></div>
         <div class="f-counter"><div class="n">${g.sinSenal.length}</div><div class="l">${e.senales.ok ? 'Sin señal' : 'Sin clasificar'}</div></div>
       </div>
-      ${g.encima.length ? `<div class="f-sub">Frente encima (&lt;50 km)</div>${nombres(g.encima)}` : ''}
-      ${g.seAcerca.length ? `<div class="f-sub">Se acerca (50-300 km, sin pasar)</div>${nombres(g.seAcerca)}` : ''}
+      ${g.encima.length ? `<div class="f-sub">Frente encima (&lt;50 km de la cabecera municipal)</div>${nombres(conKm('encima'))}` : ''}
+      ${g.seAcerca.length ? `<div class="f-sub">Se acerca (50-300 km de la cabecera, sin pasar)</div>${nombres(conKm('se_acerca'))}` : ''}
       ${g.yaPaso.length ? `<div class="f-sub">Ya pasó (WPC)</div>${nombres(g.yaPaso)}` : ''}</div>`);
 
     // Paso de frente probable por evento
@@ -529,7 +531,7 @@
       rows.push(`<div class="f-row"><div class="f-label">Paso de frente probable</div><div class="f-main muted">No disponible</div><div class="f-sub">${esc(e.senales.error)}</div></div>`);
     }else{
       const evs = e.eventos.length ? e.eventos.map(ev => `
-        <div class="f-sub"><b>Evento ${ev.numero}</b> · ${fShort.format(fromLocal(ev.desde))} h a ${fShort.format(fromLocal(ev.hasta))} h · ${ev.municipios.length} municipio(s)${ev.nota ? ` · <span style="color:#FFB84D"><b>Nota:</b> ${esc(ev.nota)}</span>` : ''}</div>
+        <div class="f-sub"><b>Evento ${ev.numero}</b> · ${fShort.format(fromLocal(ev.desde))} h a ${fShort.format(fromLocal(ev.hasta))} h · ${ev.municipios.length} municipio(s)${ev.etiqueta ? ` · <span style="color:#FFB84D">${esc(ev.etiqueta)}</span>` : ''}${ev.nota ? ` · <span style="color:#FFB84D"><b>Nota:</b> ${esc(ev.nota)}</span>` : ''}</div>
         <details class="f-det"><summary>Ver municipios y señales</summary><p>${ev.municipios.map(m => `<b>${esc(m.municipio)}</b>: ${fShort.format(fromLocal(m.estimado))} h — ${m.nSenales} de 4 señales: ${esc(m.senales.map(s => s.texto).join('; '))}`).join('<br>')}</p></details>`).join('')
         : '<div class="f-sub">Ningún municipio cumple los criterios en las próximas 72 h.</div>';
       const aire = e.municipios.filter(m => m.categoria === 'aire').sort((a, b) => a.aire.estimado.localeCompare(b.aire.estimado));
@@ -537,7 +539,7 @@
         <details class="f-det"><summary>Ver municipios</summary><p>${aire.map(m => `${esc(m.municipio)} (${fShort.format(fromLocal(m.aire.estimado))} h)`).join(', ')}</p></details>` : '';
       const sinHtml = g.sinSenal.length ? `<div class="f-sub" style="margin-top:8px">${e.senales.ok ? 'Sin señal' : 'Sin clasificar'}: ${g.sinSenal.length}</div>${nombres(g.sinSenal)}` : '';
       rows.push(`<div class="f-row"><div class="f-label">Paso de frente probable (presión obligatoria y 3 de 4 señales, próximas 72 h)</div>${evs}${aireHtml}${sinHtml}
-        <div class="f-sub" style="margin-top:8px">Señales: viento del N/NO/NE sostenido 3 h, presión +3 hPa en 12 h (obligatoria), punto de rocío −5 °C en 12 h y temperatura −5 °C; cada una se confirma contra la misma hora del día anterior. Eventos distintos: más de 36 h entre pasos de un municipio, o viento de N/NO a E/ENE.</div></div>`);
+        <div class="f-sub" style="margin-top:8px">Señales: viento del N/NO/NE sostenido 3 h, presión +3 hPa en 12 h (obligatoria), punto de rocío −5 °C en 12 h y temperatura −5 °C; cada una se confirma contra la misma hora del día anterior. Eventos: los pasos de todos los municipios se ordenan por hora y se abre uno nuevo cuando hay más de 18 h entre un paso y el siguiente; con menos de 5 municipios es señal aislada (baja confianza).</div></div>`);
     }
     body.innerHTML = rows.join('');
   }
