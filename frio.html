@@ -529,8 +529,8 @@
   async function initFrente(){
     const body = document.getElementById('frenteBody');
     try{
-      const q = new URLSearchParams(location.search).get('simular') === '1' ? '?simular=1' : '';
-      const res = await fetch('/api/sonora-frente' + q);
+      const q = new URLSearchParams(location.search).get('simular') === '1' ? '&simular=1' : '';
+      const res = await fetch('/api/sonora-frio?parte=frente' + q);
       const data = await res.json();
       if(!res.ok) throw new Error(data?.error?.message || 'Error al consultar el estado del frente frío.');
       renderFrente(data);
