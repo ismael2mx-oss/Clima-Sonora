@@ -129,7 +129,7 @@
   .f-main.muted{ color:var(--slate); font-weight:500; font-size:15px; }
   .f-sub{ font-size:12px; color:var(--slate); line-height:1.5; margin-top:2px; }
   .f-quote{ margin: 6px 0 2px; padding-left: 10px; border-left: 2px solid var(--rule); font-size:12.5px; line-height:1.5; color:var(--paper); }
-  .f-counters{ display:grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0 6px; }
+  .f-counters{ display:grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 10px 0 6px; }
   .f-counter{ background: var(--panel-light); border-radius: 10px; padding: 10px 8px; text-align:center; }
   .f-counter .n{ font-family:'IBM Plex Mono',monospace; font-size:22px; font-weight:600; color:var(--brass); }
   .f-counter .l{ font-size:11px; color:var(--slate); margin-top:2px; }
@@ -166,7 +166,10 @@
     </div>
     <div class="panel map-panel"><div id="frenteMap"></div></div>
     <div class="map-legend">
-      <span><span class="ln"></span>Frente frío (WPC)</span>
+      <span><span class="ln"></span>Frente frío</span>
+      <span><span class="ln" style="background:#7A4CFF"></span>Estacionario</span>
+      <span><span class="ln" style="background:#C2185B"></span>Ocluido</span>
+      <span><span class="ln" style="background:#B9770E;height:3px"></span>Vaguada</span>
       <span><span class="dot" style="background:#FF3B30"></span>Frente encima (&lt;50 km)</span>
       <span><span class="dot" style="background:#FF9F1C"></span>Se acerca (50-300 km)</span>
       <span><span class="dot" style="background:#6EA8FF"></span>Ya pasó</span>
@@ -416,6 +419,12 @@
 
   const ESTADO_COLOR = { encima: '#FF3B30', se_acerca: '#FF9F1C', ya_paso: '#6EA8FF', sin_influencia: '#8993A8' };
   const ESTADO_TXT = { encima: 'Frente encima', se_acerca: 'El frente se acerca', ya_paso: 'El frente ya pasó', sin_influencia: 'Sin influencia cercana' };
+  const TIPO_ESTILO = {
+    COLD: { color: '#2F6BFF', weight: 5, dash: null },
+    STNRY: { color: '#7A4CFF', weight: 4, dash: '10 6' },
+    OCFNT: { color: '#C2185B', weight: 4, dash: null },
+    TROF: { color: '#B9770E', weight: 3, dash: '3 6' }
+  };
 
   let fmap = null;
   function ensureMap(){
@@ -430,10 +439,10 @@
 
   function drawMap(e){
     const map = ensureMap();
-    (e.wpc.ok ? e.wpc.frentes : []).forEach(f => {
-      const pts = f.puntos;
-      L.polyline(pts, { color: '#FFFFFF', weight: 9, opacity: .9, interactive: false }).addTo(map);
-      L.polyline(pts, { color: '#2F6BFF', weight: 5, opacity: 1 }).bindTooltip('Frente frío (WPC)', { sticky: true }).addTo(map);
+    (e.wpc.ok ? e.wpc.elementos : []).forEach(f => {
+      const st = TIPO_ESTILO[f.tipo];
+      L.polyline(f.puntos, { color: '#FFFFFF', weight: st.weight + 4, opacity: .85, interactive: false }).addTo(map);
+      L.polyline(f.puntos, { color: st.color, weight: st.weight, opacity: 1, dashArray: st.dash }).bindTooltip(`${cap(f.tipoEs)} (WPC) · ${f.distCajaKm === 0 ? 'cruza Sonora' : f.distCajaKm + ' km de Sonora'}`, { sticky: true }).addTo(map);
     });
     e.municipios.forEach(m => {
       const estado = m.wpc ? m.wpc.estado : null;
@@ -479,49 +488,56 @@
       rows.push(`<div class="f-row"><div class="f-label">Posición WPC</div><div class="f-main muted">No disponible</div><div class="f-sub">${esc(e.wpc.error)}</div></div>`);
     }else{
       const w = e.wpc;
-      let desc;
-      if(w.frentes.length){
-        desc = `${w.frentes.length === 1 ? 'Un frente frío' : w.frentes.length + ' frentes fríos'} dentro o a menos de 300 km de Sonora` +
-          ` (${w.frentes.map(f => f.distCajaKm === 0 ? 'cruza Sonora' : 'a ' + f.distCajaKm + ' km').join(', ')}).`;
-      }else if(w.masCercano){
-        desc = `Sin frente frío a menos de 300 km de Sonora. El más cercano está a ${w.masCercano.distKm} km (cerca de ${fmtLat(w.masCercano.lat)} ${fmtLon(w.masCercano.lon)}).`;
-      }else{
-        desc = 'El boletín no trae frentes fríos.';
-      }
       const horas = w.valido ? Math.round((Date.now() - Date.parse(w.valido)) / 3600000) : null;
       const info = (w.valido ? 'Análisis válido ' + fFull.format(new Date(w.valido)) + ' h' + (horas > 9 ? ` (${horas} h de antigüedad)` : '') : 'Hora del análisis no disponible') +
         (w.fuente === 'simulación' ? ' · SIMULACIÓN' : ' · boletín codificado WPC/NOAA');
-      rows.push(`<div class="f-row"><div class="f-label">Posición WPC</div><div class="f-main${w.frentes.length ? '' : ' muted'}">${esc(desc)}</div><div class="f-sub">${esc(info)}</div></div>`);
+      let lista;
+      if(w.elementos.length){
+        lista = `<div class="f-main">${w.elementos.length} frente(s) y vaguada(s) a 600 km o menos de Sonora</div>
+          <details class="f-det"><summary>Ver detalle</summary><p>${w.elementos.map(x => `<b>${esc(cap(x.tipoEs))}</b>: ${x.distCajaKm === 0 ? 'cruza Sonora' : 'a ' + x.distCajaKm + ' km de Sonora'} (de ${fmtLat(x.puntos[0][0])} ${fmtLon(x.puntos[0][1])} a ${fmtLat(x.puntos[x.puntos.length - 1][0])} ${fmtLon(x.puntos[x.puntos.length - 1][1])})`).join('<br>')}</p></details>`;
+      }else if(w.masCercano){
+        lista = `<div class="f-main muted">Sin frentes ni vaguadas a 600 km o menos de Sonora. El más cercano es ${esc(w.masCercano.tipoEs)} a ${w.masCercano.distKm} km.</div>`;
+      }else{
+        lista = '<div class="f-main muted">El boletín no trae frentes ni vaguadas.</div>';
+      }
+      rows.push(`<div class="f-row"><div class="f-label">Posición WPC</div>${lista}<div class="f-sub">${esc(info)}. La clasificación de municipios usa solo frentes fríos a 300 km o menos.</div></div>`);
     }
 
-    // Municipios
+    (e.notas || []).forEach(n => rows.push(`<div class="f-row"><div class="f-sub" style="color:#FFB84D"><b>Nota:</b> ${esc(n)}</div></div>`));
+
+    // Municipios: cada uno en una sola categoría (suman 72)
     const g = e.grupos;
+    const total = e.municipios.length;
     const sin = [];
     if(!e.wpc.ok) sin.push('sin clasificación WPC');
     if(!e.senales.ok) sin.push('sin señales de Open-Meteo');
-    rows.push(`<div class="f-row"><div class="f-label">Municipios afectados${sin.length ? ' (' + sin.join(', ') + ')' : ''}</div>
+    const cercanos = g.encima.length + g.seAcerca.length;
+    rows.push(`<div class="f-row"><div class="f-label">Municipios afectados (${total})${sin.length ? ' · ' + sin.join(', ') : ''}</div>
       <div class="f-counters">
-        <div class="f-counter"><div class="n">${g.hoy.length}</div><div class="l">Hoy</div></div>
-        <div class="f-counter"><div class="n">${g.manana.length}</div><div class="l">Mañana</div></div>
-        <div class="f-counter"><div class="n">${g.seAcerca.length}</div><div class="l">Se acerca</div></div>
+        <div class="f-counter"><div class="n">${g.paso.length}</div><div class="l">Paso probable</div></div>
+        <div class="f-counter"><div class="n">${g.aire.length}</div><div class="l">Aire seco/fresco</div></div>
+        <div class="f-counter"><div class="n">${cercanos}</div><div class="l">Frente cerca</div></div>
         <div class="f-counter"><div class="n">${g.yaPaso.length}</div><div class="l">Ya pasó</div></div>
+        <div class="f-counter"><div class="n">${g.sinSenal.length}</div><div class="l">${e.senales.ok ? 'Sin señal' : 'Sin clasificar'}</div></div>
       </div>
-      ${g.hoy.length ? `<div class="f-sub">Hoy (${diaTxt(e.fechas.hoy)})</div>${nombres(g.hoy)}` : ''}
-      ${g.manana.length ? `<div class="f-sub">Mañana (${diaTxt(e.fechas.manana)})</div>${nombres(g.manana)}` : ''}
-      ${g.pasadoManana.length ? `<div class="f-sub">Pasado mañana (${diaTxt(e.fechas.pasadoManana)})</div>${nombres(g.pasadoManana)}` : ''}
-      ${g.masAdelante.length ? `<div class="f-sub">Más adelante (dentro de las 72 h)</div>${nombres(g.masAdelante)}` : ''}
+      ${g.encima.length ? `<div class="f-sub">Frente encima (&lt;50 km)</div>${nombres(g.encima)}` : ''}
       ${g.seAcerca.length ? `<div class="f-sub">Se acerca (50-300 km, sin pasar)</div>${nombres(g.seAcerca)}` : ''}
-      ${g.yaPaso.length ? `<div class="f-sub">Ya pasó</div>${nombres(g.yaPaso)}` : ''}</div>`);
+      ${g.yaPaso.length ? `<div class="f-sub">Ya pasó (WPC)</div>${nombres(g.yaPaso)}` : ''}</div>`);
 
-    // Paso probable
+    // Paso de frente probable por evento
     if(!e.senales.ok){
       rows.push(`<div class="f-row"><div class="f-label">Paso de frente probable</div><div class="f-main muted">No disponible</div><div class="f-sub">${esc(e.senales.error)}</div></div>`);
     }else{
-      const pasos = e.municipios.filter(m => m.paso).sort((a, b) => a.paso.estimado.localeCompare(b.paso.estimado));
-      rows.push(`<div class="f-row"><div class="f-label">Paso de frente probable (2 o más señales, próximas 72 h)</div>
-        ${pasos.length ? `<details class="f-det"><summary>${pasos.length} municipio(s)</summary><p>${pasos.map(m => `<b>${esc(m.municipio)}</b>: ${fShort.format(fromLocal(m.paso.estimado))} h — ${m.paso.nSenales} de 4 señales: ${esc(m.paso.senales.map(s => s.texto).join('; '))}`).join('<br>')}</p></details>`
-          : '<div class="f-sub">Ningún municipio cumple 2 o más señales en las próximas 72 h.</div>'}
-        <div class="f-sub">Señales: viento del N/NO/NE sostenido 3 h, presión +3 hPa en 12 h, punto de rocío −5 °C en 12 h y temperatura −5 °C. Cada una se confirma contra la misma hora del día anterior para descartar el ciclo día-noche. La hora es la de mayor coincidencia.</div></div>`);
+      const evs = e.eventos.length ? e.eventos.map(ev => `
+        <div class="f-sub"><b>Evento ${ev.numero}</b> · ${fShort.format(fromLocal(ev.desde))} h a ${fShort.format(fromLocal(ev.hasta))} h · ${ev.municipios.length} municipio(s)${ev.nota ? ` · <span style="color:#FFB84D"><b>Nota:</b> ${esc(ev.nota)}</span>` : ''}</div>
+        <details class="f-det"><summary>Ver municipios y señales</summary><p>${ev.municipios.map(m => `<b>${esc(m.municipio)}</b>: ${fShort.format(fromLocal(m.estimado))} h — ${m.nSenales} de 4 señales: ${esc(m.senales.map(s => s.texto).join('; '))}`).join('<br>')}</p></details>`).join('')
+        : '<div class="f-sub">Ningún municipio cumple los criterios en las próximas 72 h.</div>';
+      const aire = e.municipios.filter(m => m.categoria === 'aire').sort((a, b) => a.aire.estimado.localeCompare(b.aire.estimado));
+      const aireHtml = aire.length ? `<div class="f-sub" style="margin-top:8px">Aire más seco/fresco (2 señales; no es paso de frente): ${aire.length}</div>
+        <details class="f-det"><summary>Ver municipios</summary><p>${aire.map(m => `${esc(m.municipio)} (${fShort.format(fromLocal(m.aire.estimado))} h)`).join(', ')}</p></details>` : '';
+      const sinHtml = g.sinSenal.length ? `<div class="f-sub" style="margin-top:8px">${e.senales.ok ? 'Sin señal' : 'Sin clasificar'}: ${g.sinSenal.length}</div>${nombres(g.sinSenal)}` : '';
+      rows.push(`<div class="f-row"><div class="f-label">Paso de frente probable (presión obligatoria y 3 de 4 señales, próximas 72 h)</div>${evs}${aireHtml}${sinHtml}
+        <div class="f-sub" style="margin-top:8px">Señales: viento del N/NO/NE sostenido 3 h, presión +3 hPa en 12 h (obligatoria), punto de rocío −5 °C en 12 h y temperatura −5 °C; cada una se confirma contra la misma hora del día anterior. Eventos distintos: más de 36 h entre pasos de un municipio, o viento de N/NO a E/ENE.</div></div>`);
     }
     body.innerHTML = rows.join('');
   }

@@ -219,43 +219,54 @@ function frenteSection(e) {
     L.push(`- Posición WPC: no disponible (${e.wpc.error})`);
   } else {
     const w = e.wpc;
-    let desc;
-    if (w.frentes.length) {
-      desc = `${w.frentes.length} frente(s) frío(s) dentro o a menos de 300 km de Sonora: ` + w.frentes.map((f, i) => {
-        const a = f.puntos[0], b = f.puntos[f.puntos.length - 1];
-        return `frente ${i + 1} de ${fmtLat(a[0])} ${fmtLon(a[1])} a ${fmtLat(b[0])} ${fmtLon(b[1])} (${f.distCajaKm === 0 ? 'cruza Sonora' : `a ${f.distCajaKm} km de Sonora`})`;
-      }).join('; ');
-    } else if (w.masCercano) {
-      desc = `Sin frente frío a menos de 300 km de Sonora; el más cercano está a ${w.masCercano.distKm} km (cerca de ${fmtLat(w.masCercano.lat)} ${fmtLon(w.masCercano.lon)}), entre ${w.totalFrias} frentes fríos analizados en Norteamérica`;
-    } else {
-      desc = 'el boletín no trae frentes fríos';
-    }
     const analisis = w.valido ? `análisis válido ${fmtFull(new Date(w.valido))}` : 'hora del análisis no disponible';
     const horas = w.valido ? Math.round((Date.now() - Date.parse(w.valido)) / 3600000) : null;
     const viejo = horas !== null && horas > 9 ? `, con ${horas} h de antigüedad` : '';
-    L.push(`- Posición WPC: ${desc} (${analisis}${viejo}; ${w.fuente === 'simulación' ? 'SIMULACIÓN' : 'boletín codificado de frentes de superficie, WPC/NOAA'})`);
+    L.push(`- Posición WPC (${analisis}${viejo}; ${w.fuente === 'simulación' ? 'SIMULACIÓN' : 'boletín codificado de frentes de superficie, WPC/NOAA'}):`);
+    if (w.elementos.length) {
+      L.push(`    Frentes y vaguadas a 600 km o menos de Sonora: ${w.elementos.length} (de ${w.totalElementos} en el boletín de Norteamérica)`);
+      w.elementos.forEach((x, i) => {
+        const a = x.puntos[0], b = x.puntos[x.puntos.length - 1];
+        L.push(`    ${i + 1}. ${cap(x.tipoEs)}: ${x.distCajaKm === 0 ? 'cruza Sonora' : `a ${x.distCajaKm} km de Sonora`} (de ${fmtLat(a[0])} ${fmtLon(a[1])} a ${fmtLat(b[0])} ${fmtLon(b[1])})`);
+      });
+    } else if (w.masCercano) {
+      L.push(`    Sin frentes ni vaguadas a 600 km o menos de Sonora; el más cercano es ${w.masCercano.tipoEs} a ${w.masCercano.distKm} km (cerca de ${fmtLat(w.masCercano.lat)} ${fmtLon(w.masCercano.lon)}), entre ${w.totalElementos} elementos del boletín.`);
+    } else {
+      L.push('    El boletín no trae frentes ni vaguadas.');
+    }
+    L.push('    (La clasificación de municipios usa solo los frentes fríos a 300 km o menos de Sonora.)');
   }
+  (e.notas || []).forEach(n => L.push(`- Nota: ${n}`));
 
   const g = e.grupos;
-  const sinClasif = [];
-  if (!e.wpc.ok) sinClasif.push('sin clasificación WPC');
-  if (!e.senales.ok) sinClasif.push('sin señales de Open-Meteo');
-  L.push(`- Municipios afectados${sinClasif.length ? ` (${sinClasif.join(', ')})` : ''}:`);
-  L.push(`    Hoy (${diaCorto(e.fechas.hoy)}): ${listaNombres(g.hoy)}`);
-  L.push(`    Mañana (${diaCorto(e.fechas.manana)}): ${listaNombres(g.manana)}`);
-  L.push(`    Pasado mañana (${diaCorto(e.fechas.pasadoManana)}): ${listaNombres(g.pasadoManana)}`);
-  L.push(`    Más adelante (dentro de las 72 h): ${listaNombres(g.masAdelante)}`);
-  L.push(`    Se acerca (WPC, a 50-300 km, sin pasar y sin paso estimado en 72 h): ${listaNombres(g.seAcerca)}`);
+  const total = e.municipios.length;
+  const suma = g.encima.length + g.seAcerca.length + g.yaPaso.length + g.paso.length + g.aire.length + g.sinSenal.length;
+  L.push(`- Municipios afectados (clasificación de los ${total}, cada uno en una sola categoría):`);
+  L.push(`    Frente encima (WPC, a menos de 50 km): ${listaNombres(g.encima)}`);
+  L.push(`    Se acerca (WPC, a 50-300 km, sin pasar): ${listaNombres(g.seAcerca)}`);
   L.push(`    Ya pasó (WPC): ${listaNombres(g.yaPaso)}`);
 
   if (!e.senales.ok) {
-    L.push(`- Paso de frente probable: no disponible (${e.senales.error})`);
+    L.push(`    Paso de frente probable y aire más seco/fresco: no disponible (${e.senales.error})`);
   } else {
-    const pasos = e.municipios.filter(m => m.paso).sort((a, b) => a.paso.estimado.localeCompare(b.paso.estimado));
-    L.push('- Paso de frente probable (2 o más señales en Open-Meteo, próximas 72 h, hora de Sonora):');
-    if (!pasos.length) L.push('    Ningún municipio cumple 2 o más señales en las próximas 72 h.');
-    pasos.forEach(m => L.push(`    ${m.municipio}: ${fmtLocal(m.paso.estimado)} — ${m.paso.nSenales} de 4 señales: ${m.paso.senales.map(s => s.texto).join('; ')}`));
-    L.push('  Señales: viento del N/NO/NE sostenido 3 h, subida de presión de más de 3 hPa en 12 h, baja del punto de rocío de más de 5 °C en 12 h y baja de temperatura de 5 °C o más. Para descartar el ciclo día-noche, cada señal se confirma también contra la misma hora del día anterior. La hora estimada es la de mayor coincidencia de señales.');
+    L.push(`    Paso de frente probable (subida de presión obligatoria y 3 de 4 señales; próximas 72 h, hora de Sonora): ${g.paso.length} municipio(s) en ${e.eventos.length} evento(s)`);
+    if (!e.eventos.length) L.push('      Ningún municipio cumple los criterios.');
+    e.eventos.forEach(ev => {
+      L.push(`      Evento ${ev.numero} (${fmtLocal(ev.desde)} a ${fmtLocal(ev.hasta)}): ${ev.municipios.length} municipio(s)${ev.nota ? ` — Nota: ${ev.nota}` : ''}`);
+      ev.municipios.forEach(m => L.push(`        ${m.municipio}: ${fmtLocal(m.estimado)} — ${m.nSenales} de 4 señales: ${m.senales.map(s => s.texto).join('; ')}`));
+    });
+
+    const aire = e.municipios.filter(m => m.categoria === 'aire').sort((a, b) => a.aire.estimado.localeCompare(b.aire.estimado));
+    L.push(`    Aire más seco/fresco (2 señales, o 3 sin subida de presión; no es paso de frente): ${aire.length ? aire.length : '0 — ninguno'}`);
+    const porDia = new Map();
+    aire.forEach(m => { const d = m.aire.estimado.slice(0, 10); porDia.set(d, [...(porDia.get(d) || []), `${m.municipio} (${m.aire.estimado.slice(11, 16)} h)`]); });
+    porDia.forEach((items, d) => L.push(`      ${diaCorto(d)}: ${items.join(', ')}`));
+  }
+  L.push(`    ${e.senales.ok ? 'Sin señal' : 'Sin clasificar por falta de Open-Meteo'}: ${listaNombres(g.sinSenal)}`);
+  L.push(`    Suma de categorías: ${suma} de ${total}${suma === total ? '' : ' (REVISAR: no coincide)'}`);
+
+  if (e.senales.ok) {
+    L.push('  Criterios: señales = viento del N/NO/NE sostenido 3 h, subida de presión de más de 3 hPa en 12 h (obligatoria para paso de frente), baja del punto de rocío de más de 5 °C en 12 h y baja de temperatura de 5 °C o más; cada una se confirma contra la misma hora del día anterior para descartar el ciclo día-noche. Eventos distintos: más de 36 h entre pasos de un mismo municipio, o viento que pasa de N/NO a E/ENE. "Orden inconsistente": la mediana de los municipios del sur (lat. 28° o menos) llega más de 12 h antes que la de los del norte (lat. 30° o más).');
   }
   return L.join('\n');
 }

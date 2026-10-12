@@ -184,6 +184,9 @@ export async function loadSmnFrente() {
 
 // ---------- WPC (boletín codificado de frentes de superficie) ----------
 
+const TIPOS_WPC = { COLD: 'frente frío', STNRY: 'frente estacionario', OCFNT: 'frente ocluido', TROF: 'vaguada' };
+const ELEMENTOS_KM = 600;
+
 const MESES_EN = { JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5, JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11 };
 const TZ_EN = { EDT: -4, EST: -5, CDT: -5, CST: -6, MDT: -6, MST: -7, PDT: -7, PST: -8, UTC: 0, GMT: 0 };
 
@@ -215,14 +218,14 @@ function parseWpc(text) {
     validoMs = candidatos.reduce((a, b) => (Math.abs(b - ref) < Math.abs(a - ref) ? b : a));
   }
 
-  const frias = [];
+  const bloques = [];
   let bloque = null;
   for (const linea of text.split(/\r?\n/).map(l => l.trim())) {
     if (linea.startsWith('$$')) break;
     const kw = /^([A-Z]+)\b(.*)$/.exec(linea);
     if (kw && /^(COLD|WARM|STNRY|OCFNT|TROF|HIGHS|LOWS)$/.test(kw[1])) {
       bloque = { tipo: kw[1], toks: kw[2].trim().split(/\s+/).filter(Boolean) };
-      if (bloque.tipo === 'COLD') frias.push(bloque);
+      if (TIPOS_WPC[bloque.tipo]) bloques.push(bloque);
     } else if (bloque && /^[\d\s]+$/.test(linea) && linea) {
       bloque.toks.push(...linea.split(/\s+/));
     } else {
@@ -230,10 +233,10 @@ function parseWpc(text) {
     }
   }
 
-  const frentes = frias
-    .map(b => b.toks.map(parsePunto).filter(Boolean))
-    .filter(pts => pts.length >= 2);
-  return { emitidoMs, validoMs, frentes };
+  const lineas = bloques
+    .map(b => ({ tipo: b.tipo, puntos: b.toks.map(parsePunto).filter(Boolean) }))
+    .filter(l => l.puntos.length >= 2);
+  return { emitidoMs, validoMs, lineas };
 }
 
 function distPuntoCajaKm(lat, lon) {
@@ -261,7 +264,7 @@ async function loadWpcText() {
     try {
       const text = await fetchRetry(url, { headers: NOAA_HEADERS });
       const parsed = parseWpc(text);
-      if (parsed.validoMs !== null || parsed.frentes.length) return { url, parsed };
+      if (parsed.validoMs !== null || parsed.lineas.length) return { url, parsed };
       ultimo = new Error('boletín sin datos reconocibles');
     } catch (err) {
       ultimo = err;
@@ -278,7 +281,9 @@ function boletinSimulado() {
 NWS WEATHER PREDICTION CENTER COLLEGE PARK MD
 SIMULACION
 VALID ${mm}${dd}${hh}Z
-COLD 3301090 3101108 2901126 2701144`;
+COLD 3301090 3101108 2901126 2701144
+STNRY 3301090 3341070 3361050
+TROF 3151230 2951200 2751180`;
 }
 
 export async function loadWpcFrentes({ simular = false } = {}) {
@@ -291,16 +296,25 @@ export async function loadWpcFrentes({ simular = false } = {}) {
     fuente = r.url;
     parsed = r.parsed;
   }
-  const analizadas = parsed.frentes.map(puntos => ({ puntos, cerca: distLineaCajaKm(puntos) }));
-  const cercanos = analizadas.filter(f => f.cerca.d <= MARGEN_KM).map(f => ({ puntos: f.puntos, distCajaKm: Math.round(f.cerca.d) }));
-  const masCercano = analizadas.length ? analizadas.reduce((a, b) => (b.cerca.d < a.cerca.d ? b : a)).cerca : null;
+  const analizadas = parsed.lineas.map(l => ({ ...l, cerca: distLineaCajaKm(l.puntos) }));
+  const elementos = analizadas
+    .filter(l => l.cerca.d <= ELEMENTOS_KM)
+    .sort((a, b) => a.cerca.d - b.cerca.d)
+    .map(l => ({ tipo: l.tipo, tipoEs: TIPOS_WPC[l.tipo], puntos: l.puntos, distCajaKm: Math.round(l.cerca.d) }));
+  // La clasificación de municipios (encima / se acerca / ya pasó) usa solo frentes fríos a 300 km o menos.
+  const frentes = elementos.filter(l => l.tipo === 'COLD' && l.distCajaKm <= MARGEN_KM).map(({ puntos, distCajaKm }) => ({ puntos, distCajaKm }));
+  // Para comparar con el SMN cuentan los frentes de cualquier tipo (no las vaguadas).
+  const hayFrente300 = analizadas.some(l => l.tipo !== 'TROF' && l.cerca.d <= MARGEN_KM);
+  const masCercano = analizadas.length ? analizadas.reduce((a, b) => (b.cerca.d < a.cerca.d ? b : a)) : null;
   return {
     fuente,
     valido: parsed.validoMs !== null ? new Date(parsed.validoMs).toISOString() : null,
     emitido: parsed.emitidoMs !== null ? new Date(parsed.emitidoMs).toISOString() : null,
-    totalFrias: analizadas.length,
-    frentes: cercanos,
-    masCercano: masCercano ? { distKm: Math.round(masCercano.d), lat: masCercano.lat, lon: masCercano.lon } : null
+    totalElementos: analizadas.length,
+    elementos,
+    frentes,
+    hayFrente300,
+    masCercano: masCercano ? { tipo: masCercano.tipo, tipoEs: TIPOS_WPC[masCercano.tipo], distKm: Math.round(masCercano.cerca.d), lat: masCercano.cerca.lat, lon: masCercano.cerca.lon } : null
   };
 }
 
@@ -346,7 +360,7 @@ async function loadSenales() {
 function analizarPaso(h, ahoraStr) {
   const tiempos = h.time || [];
   const i0 = tiempos.findIndex(t => t >= ahoraStr);
-  if (i0 < 0) return null;
+  if (i0 < 0) return { pasos: [], aire: null };
   const T = h.temperature_2m || [], dp = h.dew_point_2m || [], P = h.pressure_msl || [], D = h.wind_direction_10m || [];
   const n = tiempos.length;
   const ok = (...v) => v.every(Number.isFinite);
@@ -371,18 +385,107 @@ function analizarPaso(h, ahoraStr) {
     temperatura: u => `temperatura −${(T[u - 24] - T[u]).toFixed(1)} °C respecto a 24 h antes`
   };
 
-  // Se elige la hora con más señales a la vez (a igualdad, la primera), no la primera coincidencia.
-  let mejor = null;
-  for (let t = i0; t < n; t++) {
-    const act = Object.keys(sig).map(tipo => ({ tipo, u: activo(tipo, t) })).filter(a => a.u >= 0);
-    if (act.length >= 2 && (!mejor || act.length > mejor.act.length)) mejor = { t, act };
-  }
-  if (!mejor) return null;
-  return {
-    estimado: tiempos[mejor.t],
-    nSenales: mejor.act.length,
-    senales: mejor.act.map(a => ({ tipo: a.tipo, texto: detalle[a.tipo](a.u) }))
+  const activas = t => Object.keys(sig).map(tipo => ({ tipo, u: activo(tipo, t) })).filter(a => a.u >= 0);
+  const armar = (t, lista) => ({
+    estimado: tiempos[t],
+    dir: D[t],
+    nSenales: lista.length,
+    senales: lista.map(a => ({ tipo: a.tipo, texto: detalle[a.tipo](a.u) }))
+  });
+
+  // Paso de frente probable: la subida de presión es obligatoria y se exigen 3 de las 4 señales.
+  // Las horas que cumplen y están separadas por 6 h o menos forman una sola pasada; se toma la de más señales.
+  const pasos = [];
+  let grupo = [];
+  const cerrar = () => {
+    if (!grupo.length) return;
+    const mejor = grupo.reduce((x, y) => (y.a.length > x.a.length ? y : x));
+    pasos.push(armar(mejor.t, mejor.a));
+    grupo = [];
   };
+  for (let t = i0; t < n; t++) {
+    const a = activas(t);
+    if (a.length >= 3 && a.some(x => x.tipo === 'presion')) {
+      if (grupo.length && t - grupo[grupo.length - 1].t > 6) cerrar();
+      grupo.push({ t, a });
+    }
+  }
+  cerrar();
+
+  // Con 2 señales (o 3 sin subida de presión) solo hay aire más seco/fresco, no paso de frente.
+  let aire = null;
+  if (!pasos.length) {
+    let mejor = null;
+    for (let t = i0; t < n; t++) {
+      const a = activas(t);
+      if (a.length >= 2 && (!mejor || a.length > mejor.a.length)) mejor = { t, a };
+    }
+    if (mejor) aire = armar(mejor.t, mejor.a);
+  }
+  return { pasos, aire };
+}
+
+const N_NO = new Set(['N', 'NNO', 'NO']);
+const E_ENE = new Set(['E', 'ENE']);
+const HORA_MS = 3600000;
+const SEPARACION_EVENTOS_H = 36;
+const ORDEN_TOLERANCIA_H = 12;
+
+const mediana = arr => { const s = arr.slice().sort((a, b) => a - b); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+
+// Agrupa los pasos estimados en eventos. En un mismo municipio, dos pasos son eventos distintos si los separan
+// más de 36 h o si el viento pasa de N/NO a E/ENE. Los municipios con un solo paso se asignan al evento
+// cuya hora central les queda más cerca.
+function agruparEventos(candidatos) {
+  const filas = [];
+  candidatos.forEach(c => {
+    let ord = 1;
+    c.pasos.forEach((p, k) => {
+      if (k > 0) {
+        const prev = c.pasos[k - 1];
+        const gapH = (localStringToMs(p.estimado) - localStringToMs(prev.estimado)) / HORA_MS;
+        if (gapH > SEPARACION_EVENTOS_H || (N_NO.has(compass(prev.dir)) && E_ENE.has(compass(p.dir)))) ord++;
+      }
+      filas.push({ c, p, ms: localStringToMs(p.estimado), ord });
+    });
+  });
+  if (!filas.length) return [];
+
+  const maxOrd = Math.max(...filas.map(f => f.ord));
+  if (maxOrd > 1) {
+    const multi = new Set(filas.filter(f => f.ord > 1).map(f => f.c));
+    const centros = [];
+    for (let k = 1; k <= maxOrd; k++) {
+      const ms = filas.filter(f => multi.has(f.c) && f.ord === k).map(f => f.ms);
+      centros.push(ms.length ? ms.reduce((a, b) => a + b, 0) / ms.length : Infinity);
+    }
+    filas.filter(f => !multi.has(f.c)).forEach(f => {
+      f.ord = centros.reduce((mejor, cen, i) => (Math.abs(f.ms - cen) < Math.abs(f.ms - centros[mejor]) ? i : mejor), 0) + 1;
+    });
+  }
+
+  const eventos = [];
+  for (let k = 1; k <= maxOrd; k++) {
+    const porMunicipio = new Map();
+    filas.filter(f => f.ord === k).forEach(f => {
+      const actual = porMunicipio.get(f.c);
+      if (!actual || f.ms < actual.ms) porMunicipio.set(f.c, f);
+    });
+    if (!porMunicipio.size) continue;
+    const miembros = Array.from(porMunicipio.values()).sort((a, b) => a.ms - b.ms);
+    const norte = miembros.filter(f => f.c.lat >= 30).map(f => f.ms);
+    const sur = miembros.filter(f => f.c.lat <= 28).map(f => f.ms);
+    let nota = null;
+    if (norte.length >= 2 && sur.length >= 2 && mediana(sur) < mediana(norte) - ORDEN_TOLERANCIA_H * HORA_MS) nota = 'orden inconsistente, revisar';
+    eventos.push({
+      numero: eventos.length + 1,
+      desde: miembros[0].p.estimado,
+      hasta: miembros[miembros.length - 1].p.estimado,
+      nota,
+      municipios: miembros.map(f => ({ municipio: f.c.municipio, estimado: f.p.estimado, nSenales: f.p.nSenales, senales: f.p.senales }))
+    });
+  }
+  return eventos;
 }
 
 // ---------- Estado combinado ----------
@@ -403,26 +506,45 @@ export async function loadFrenteEstado({ simular = false } = {}) {
   const wpc = wpcR.status === 'fulfilled' ? wpcR.value : null;
   const senales = senR.status === 'fulfilled' ? senR.value : null;
 
-  const municipios = MUNICIPIOS.map((m, i) => ({
-    municipio: m.municipio,
-    cabecera: m.cabecera,
-    lat: m.lat,
-    lon: m.lon,
-    wpc: wpc ? clasificarContraFrentes(m.lat, m.lon, wpc.frentes) : null,
-    paso: senales ? analizarPaso(senales[i], ahoraStr) : null
-  }));
+  // Cada municipio queda en una sola categoría, así que siempre suman 72. Orden de prioridad: el análisis
+  // del WPC ("encima", "ya pasó") prevalece sobre las señales; luego paso de frente, "se acerca",
+  // aire más seco/fresco y, al final, sin señal.
+  const municipios = MUNICIPIOS.map((m, i) => {
+    const w = wpc ? clasificarContraFrentes(m.lat, m.lon, wpc.frentes) : null;
+    const an = senales ? analizarPaso(senales[i], ahoraStr) : { pasos: [], aire: null };
+    let categoria;
+    if (w?.estado === 'encima') categoria = 'encima';
+    else if (w?.estado === 'ya_paso') categoria = 'ya_paso';
+    else if (an.pasos.length) categoria = 'paso';
+    else if (w?.estado === 'se_acerca') categoria = 'se_acerca';
+    else if (an.aire) categoria = 'aire';
+    else categoria = 'sin_senal';
+    return { municipio: m.municipio, cabecera: m.cabecera, lat: m.lat, lon: m.lon, wpc: w, categoria, pasos: an.pasos, aire: an.aire };
+  });
 
-  // Si el WPC ya ubica el frente más allá del municipio ("ya pasó"), ese análisis prevalece sobre las señales.
-  const dia = m => (m.paso && m.wpc?.estado !== 'ya_paso' ? m.paso.estimado.slice(0, 10) : null);
-  const nombres = fn => municipios.filter(fn).map(m => m.municipio);
+  const eventos = agruparEventos(municipios.filter(m => m.categoria === 'paso'));
+  const eventoDe = new Map();
+  eventos.forEach(ev => ev.municipios.forEach(x => { if (!eventoDe.has(x.municipio)) eventoDe.set(x.municipio, { numero: ev.numero, ...x }); }));
+  municipios.forEach(m => {
+    const ev = eventoDe.get(m.municipio);
+    m.paso = ev ? { estimado: ev.estimado, nSenales: ev.nSenales, senales: ev.senales, evento: ev.numero } : null;
+    delete m.pasos;
+  });
+
+  const nombres = cat => municipios.filter(m => m.categoria === cat).map(m => m.municipio);
   const grupos = {
-    hoy: nombres(m => m.wpc?.estado === 'encima' || dia(m) === hoy),
-    manana: nombres(m => dia(m) === manana && m.wpc?.estado !== 'encima'),
-    pasadoManana: nombres(m => dia(m) === pasadoManana && m.wpc?.estado !== 'encima'),
-    masAdelante: nombres(m => dia(m) > pasadoManana && m.wpc?.estado !== 'encima'),
-    seAcerca: nombres(m => m.wpc?.estado === 'se_acerca' && !m.paso),
-    yaPaso: nombres(m => m.wpc?.estado === 'ya_paso')
+    encima: nombres('encima'),
+    seAcerca: nombres('se_acerca'),
+    yaPaso: nombres('ya_paso'),
+    paso: nombres('paso'),
+    aire: nombres('aire'),
+    sinSenal: nombres('sin_senal')
   };
+
+  const notas = [];
+  if (smnR.status === 'fulfilled' && smnR.value.frentes.length && wpc && !wpc.hayFrente300) {
+    notas.push('el SMN y el WPC no coinciden en la posición del frente');
+  }
 
   const error = r => (r.status === 'rejected' ? (r.reason?.message || 'error desconocido') : null);
   return {
@@ -433,7 +555,9 @@ export async function loadFrenteEstado({ simular = false } = {}) {
     wpc: wpc ? { ok: true, ...wpc } : { ok: false, error: error(wpcR) },
     senales: senales ? { ok: true } : { ok: false, error: error(senR) },
     municipios,
+    eventos,
     grupos,
+    notas,
     hayError: smnR.status === 'rejected' || wpcR.status === 'rejected' || senR.status === 'rejected' || (smnR.status === 'fulfilled' && smnR.value.parcial)
   };
 }
