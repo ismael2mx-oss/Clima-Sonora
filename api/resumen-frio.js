@@ -1,4 +1,5 @@
 import { loadSonoraFrio } from './_frio-data.js';
+import { loadFrenteEstado, localStringToMs } from './_frente-data.js';
 
 const TZ = 'America/Hermosillo';
 const SITE = 'https://clima-sonora-6fne.vercel.app';
@@ -188,18 +189,92 @@ function alertasSection(feats) {
 
 const failure = (what, err) => `[No disponible: no se pudo consultar ${what}. Motivo: ${err && err.message ? err.message : 'error desconocido'}]`;
 
-export async function buildResumenFrio() {
-  const [frioR, azR] = await Promise.allSettled([loadSonoraFrio(), loadAzAlerts()]);
+const fmtLat = v => Math.abs(v).toFixed(1) + '°' + (v >= 0 ? 'N' : 'S');
+const fmtLon = v => Math.abs(v).toFixed(1) + '°' + (v >= 0 ? 'E' : 'O');
+const fmtLocal = s => fmtShort(new Date(localStringToMs(s)));
+const diaCorto = d => cap(dayFmt.format(new Date(d + 'T12:00:00Z')));
+const listaNombres = arr => (arr.length ? `${arr.length} — ${arr.join(', ')}` : '0 — ninguno');
+
+function frenteSection(e) {
+  const L = [];
+  if (e.simulacion) L.push('[SIMULACIÓN: la posición del frente es un ejemplo ficticio para probar el sistema; no es real.]');
+
+  if (!e.smn.ok) {
+    L.push(`- Oficial SMN: no disponible (${e.smn.error})`);
+  } else {
+    if (!e.smn.frentes.length) {
+      L.push('- Oficial SMN: Sin frente frío anunciado por el SMN');
+    } else {
+      e.smn.frentes.forEach((f, i) => {
+        const cuando = f.emitido ? `${fmtFull(new Date(f.emitido))} hora de Sonora` : 'fecha no disponible';
+        L.push(`${i === 0 ? '- Oficial SMN: ' : '  '}Frente frío núm. ${f.numero} (aviso${f.noAviso ? ' No. ' + f.noAviso : ''} del ${cuando}; ${f.fuente})`);
+        L.push(`    "${f.frase}"`);
+      });
+    }
+    const caidas = e.smn.paginas.filter(p => !p.ok);
+    if (caidas.length) L.push(`  (No se pudo leer ${caidas.map(p => `"${p.nombre}": ${p.error}`).join('; ')}; se usaron solo las páginas disponibles.)`);
+  }
+
+  if (!e.wpc.ok) {
+    L.push(`- Posición WPC: no disponible (${e.wpc.error})`);
+  } else {
+    const w = e.wpc;
+    let desc;
+    if (w.frentes.length) {
+      desc = `${w.frentes.length} frente(s) frío(s) dentro o a menos de 300 km de Sonora: ` + w.frentes.map((f, i) => {
+        const a = f.puntos[0], b = f.puntos[f.puntos.length - 1];
+        return `frente ${i + 1} de ${fmtLat(a[0])} ${fmtLon(a[1])} a ${fmtLat(b[0])} ${fmtLon(b[1])} (${f.distCajaKm === 0 ? 'cruza Sonora' : `a ${f.distCajaKm} km de Sonora`})`;
+      }).join('; ');
+    } else if (w.masCercano) {
+      desc = `Sin frente frío a menos de 300 km de Sonora; el más cercano está a ${w.masCercano.distKm} km (cerca de ${fmtLat(w.masCercano.lat)} ${fmtLon(w.masCercano.lon)}), entre ${w.totalFrias} frentes fríos analizados en Norteamérica`;
+    } else {
+      desc = 'el boletín no trae frentes fríos';
+    }
+    const analisis = w.valido ? `análisis válido ${fmtFull(new Date(w.valido))}` : 'hora del análisis no disponible';
+    const horas = w.valido ? Math.round((Date.now() - Date.parse(w.valido)) / 3600000) : null;
+    const viejo = horas !== null && horas > 9 ? `, con ${horas} h de antigüedad` : '';
+    L.push(`- Posición WPC: ${desc} (${analisis}${viejo}; ${w.fuente === 'simulación' ? 'SIMULACIÓN' : 'boletín codificado de frentes de superficie, WPC/NOAA'})`);
+  }
+
+  const g = e.grupos;
+  const sinClasif = [];
+  if (!e.wpc.ok) sinClasif.push('sin clasificación WPC');
+  if (!e.senales.ok) sinClasif.push('sin señales de Open-Meteo');
+  L.push(`- Municipios afectados${sinClasif.length ? ` (${sinClasif.join(', ')})` : ''}:`);
+  L.push(`    Hoy (${diaCorto(e.fechas.hoy)}): ${listaNombres(g.hoy)}`);
+  L.push(`    Mañana (${diaCorto(e.fechas.manana)}): ${listaNombres(g.manana)}`);
+  L.push(`    Pasado mañana (${diaCorto(e.fechas.pasadoManana)}): ${listaNombres(g.pasadoManana)}`);
+  L.push(`    Se acerca (WPC, a 50-300 km, sin pasar y sin paso estimado en 72 h): ${listaNombres(g.seAcerca)}`);
+  L.push(`    Ya pasó (WPC): ${listaNombres(g.yaPaso)}`);
+
+  if (!e.senales.ok) {
+    L.push(`- Paso de frente probable: no disponible (${e.senales.error})`);
+  } else {
+    const pasos = e.municipios.filter(m => m.paso).sort((a, b) => a.paso.estimado.localeCompare(b.paso.estimado));
+    L.push('- Paso de frente probable (2 o más señales en Open-Meteo, próximas 72 h, hora de Sonora):');
+    if (!pasos.length) L.push('    Ningún municipio cumple 2 o más señales en las próximas 72 h.');
+    pasos.forEach(m => L.push(`    ${m.municipio}: ${fmtLocal(m.paso.estimado)} — ${m.paso.senales.map(s => s.texto).join('; ')}`));
+    L.push('  Señales: cambio de viento a N/NO/NE, subida de presión de más de 3 hPa en 12 h, baja del punto de rocío de más de 5 °C en 12 h y baja de temperatura de 5 °C o más respecto a la misma hora 24 h antes (así se descarta el ciclo día-noche).');
+  }
+  return L.join('\n');
+}
+
+export async function buildResumenFrio({ simular = false } = {}) {
+  const [estadoR, frioR, azR] = await Promise.allSettled([loadFrenteEstado({ simular }), loadSonoraFrio(), loadAzAlerts()]);
 
   const parts = [];
   const now = new Date();
   parts.push('RESUMEN DE FRENTES FRÍOS, HELADAS Y VIENTO EN SONORA');
   parts.push(`Generado: ${fmtFull(now)} (hora de Sonora, UTC-7)`);
-  parts.push('Fuentes: Open-Meteo (temperatura, viento y nieve, 72 municipios) y National Weather Service (avisos de Arizona). Datos con hasta 15 minutos de retraso por caché.');
+  parts.push('Fuentes: Servicio Meteorológico Nacional (texto oficial), WPC/NOAA (posición de frentes), Open-Meteo (temperatura, viento, presión, nieve; 72 municipios) y National Weather Service (avisos de Arizona). Datos con hasta 15 minutos de retraso por caché.');
   parts.push(`Versión visual: ${SITE}/frio.html`);
   parts.push('');
 
   const sep = '==================================================';
+
+  parts.push(sep, 'ESTADO DEL FRENTE FRÍO', sep);
+  parts.push(estadoR.status === 'rejected' ? failure('el estado del frente frío', estadoR.reason) : frenteSection(estadoR.value));
+  parts.push('');
 
   if (frioR.status === 'rejected') {
     parts.push(sep, 'RESUMEN POR DÍA', sep, failure('los datos de Open-Meteo', frioR.reason), '');
@@ -220,16 +295,22 @@ export async function buildResumenFrio() {
   parts.push(azR.status === 'rejected' ? failure('los avisos activos del NWS para Arizona', azR.reason) : alertasSection(azR.value));
   parts.push('');
 
-  return parts.join('\n');
+  const ok = estadoR.status === 'fulfilled' && !estadoR.value.hayError && frioR.status === 'fulfilled' && azR.status === 'fulfilled';
+  return { text: parts.join('\n'), ok };
 }
 
-export default async function handler(req, res) {
+export async function respondResumenFrio(req, res) {
   try {
-    const text = await buildResumenFrio();
+    const simular = String(req.query?.simular || '') === '1';
+    const { text, ok } = await buildResumenFrio({ simular });
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.setHeader('Cache-Control', 's-maxage=900, stale-while-revalidate=300');
+    // Si alguna fuente falló (o es una simulación), la respuesta no se guarda en caché.
+    res.setHeader('Cache-Control', ok && !simular ? 's-maxage=900, stale-while-revalidate=300' : 'no-store');
     res.status(200).send(text);
   } catch (err) {
+    res.setHeader('Cache-Control', 'no-store');
     res.status(502).send(`No se pudo generar el resumen de frío. Motivo: ${err.message || 'error desconocido'}`);
   }
 }
+
+export default respondResumenFrio;
