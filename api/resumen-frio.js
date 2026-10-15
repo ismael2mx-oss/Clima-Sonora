@@ -254,7 +254,7 @@ function frenteSection(e) {
     } else {
       L.push('    El boletín no trae frentes ni vaguadas.');
     }
-    L.push('    (La clasificación de municipios usa solo los frentes fríos a 300 km o menos de Sonora.)');
+    L.push('    (La clasificación de municipios usa solo los frentes fríos a 300 km o menos de Sonora. Si la cabecera municipal queda más allá del primer o del último punto del frente, no se clasifica como "ya pasó" ni por el lado de la línea: se usa la distancia al extremo más cercano; a más de 300 km es "Sin influencia cercana" y a 300 km o menos es "Se acerca" solo si el frente avanza hacia el municipio.)');
   }
   (e.notas || []).forEach(n => L.push(`- Nota: ${n}`));
 
@@ -285,7 +285,7 @@ function frenteSection(e) {
     aire.forEach(m => { const d = m.aire.estimado.slice(0, 10); porDia.set(d, [...(porDia.get(d) || []), `${m.municipio} (${m.aire.estimado.slice(11, 16)} h)`]); });
     porDia.forEach((items, d) => L.push(`      ${diaCorto(d)}: ${items.join(', ')}`));
   }
-  L.push(`    Sin influencia cercana (el frente está a más de 300 km y no hay señales de Open-Meteo): ${listaNombres(g.sinSenal)}`);
+  L.push(`    Sin influencia cercana (ningún frente a 300 km o menos avanza hacia el municipio y no hay señales de Open-Meteo): ${listaNombres(g.sinSenal)}`);
   const faltan = [!e.senales.ok ? 'Open-Meteo' : null, !e.wpc.ok ? 'WPC' : null].filter(Boolean).join(' y ');
   L.push(`    Sin datos${g.sinDatos.length ? ` (no se pudieron clasificar por falta de ${faltan})` : ''}: ${listaNombres(g.sinDatos)}`);
   L.push(`    Suma de categorías: ${suma} de ${total}${suma === total ? '' : ' (REVISAR: no coincide)'}`);

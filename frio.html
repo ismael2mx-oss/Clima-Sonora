@@ -524,7 +524,7 @@
         opacity: .8, fillColor: fillDe(m), fillOpacity: .8
       });
       const lines = [`<b>${esc(m.municipio)}</b>`, CAT_TXT[m.categoria] || ''];
-      if(m.wpc) lines.push(`${m.wpc.distKm} km del frente frío más cercano (desde la cabecera municipal)`);
+      if(m.wpc) lines.push(`${m.wpc.distKm} km ${m.wpc.fuera ? 'del extremo del frente frío más cercano (la cabecera queda más allá de la línea)' : 'del frente frío más cercano'} (desde la cabecera municipal)`);
       else if(!e.wpc.ok) lines.push('Posición del frente no disponible');
       if(paso) lines.push(`Paso probable: ${fShort.format(fromLocal(paso.estimado))} h (${paso.nSenales} de 4 señales)`, esc(paso.senales.map(s => s.texto).join('; ')));
       mk.bindPopup(lines.filter(Boolean).join('<br>')).addTo(map);
@@ -599,7 +599,7 @@
       }else{
         lista = '<div class="f-main muted">El boletín no trae frentes ni vaguadas.</div>';
       }
-      rows.push(`<div class="f-row"><div class="f-label">Posición WPC</div>${lista}<div class="f-sub">${esc(info)}. La clasificación de municipios usa solo frentes fríos a 300 km o menos.</div></div>`);
+      rows.push(`<div class="f-row"><div class="f-label">Posición WPC</div>${lista}<div class="f-sub">${esc(info)}. La clasificación de municipios usa solo frentes fríos a 300 km o menos. Si la cabecera municipal queda más allá del primer o del último punto del frente, no se clasifica como "ya pasó" ni por el lado de la línea: se usa la distancia al extremo más cercano; a más de 300 km es "Sin influencia cercana" y a 300 km o menos es "Se acerca" solo si el frente avanza hacia el municipio.</div></div>`);
     }
 
     (e.notas || []).forEach(n => rows.push(`<div class="f-row"><div class="f-sub" style="color:#FFB84D"><b>Nota:</b> ${esc(n)}</div></div>`));
@@ -638,7 +638,7 @@
       const aire = e.municipios.filter(m => m.categoria === 'aire').sort((a, b) => a.aire.estimado.localeCompare(b.aire.estimado));
       const aireHtml = aire.length ? `<div class="f-sub" style="margin-top:8px">Aire más seco/fresco (2 señales; no es paso de frente): ${aire.length}</div>
         <details class="f-det"><summary>Ver municipios</summary><p>${aire.map(m => `${esc(m.municipio)} (${fShort.format(fromLocal(m.aire.estimado))} h)`).join(', ')}</p></details>` : '';
-      const sinHtml = (g.sinSenal.length ? `<div class="f-sub" style="margin-top:8px">Sin influencia cercana (frente a más de 300 km y sin señales): ${g.sinSenal.length}</div>${nombres(g.sinSenal)}` : '') + (g.sinDatos.length ? `<div class="f-sub" style="margin-top:8px">Sin datos (falta ${[!e.senales.ok ? 'Open-Meteo' : '', !e.wpc.ok ? 'WPC' : ''].filter(Boolean).join(' y ')}): ${g.sinDatos.length}</div>${nombres(g.sinDatos)}` : '');
+      const sinHtml = (g.sinSenal.length ? `<div class="f-sub" style="margin-top:8px">Sin influencia cercana (ningún frente a 300 km o menos avanza hacia el municipio, sin señales): ${g.sinSenal.length}</div>${nombres(g.sinSenal)}` : '') + (g.sinDatos.length ? `<div class="f-sub" style="margin-top:8px">Sin datos (falta ${[!e.senales.ok ? 'Open-Meteo' : '', !e.wpc.ok ? 'WPC' : ''].filter(Boolean).join(' y ')}): ${g.sinDatos.length}</div>${nombres(g.sinDatos)}` : '');
       const guardados = e.senales.desdeCache ? `<div class="f-sub" style="color:#FFB84D">Señales calculadas con datos guardados de Open-Meteo de las ${esc(hhmm(e.senales.datosDe))} h (la consulta actual falló ${esc(e.senales.motivo || 'por un error de Open-Meteo')}).</div>` : '';
       rows.push(`<div class="f-row"><div class="f-label">Paso de frente probable (presión obligatoria y 3 de 4 señales, próximas 72 h)</div>${guardados}${evs}${aireHtml}${sinHtml}
         <div class="f-sub" style="margin-top:8px">Señales: viento del N/NO/NE sostenido 3 h, presión +3 hPa en 12 h (obligatoria), punto de rocío −5 °C en 12 h y temperatura −5 °C; cada una se confirma contra la misma hora del día anterior. Eventos: los pasos de todos los municipios se ordenan por hora y se abre uno nuevo cuando hay más de 18 h entre un paso y el siguiente; con menos de 5 municipios es señal aislada (baja confianza).</div></div>`);

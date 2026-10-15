@@ -421,7 +421,7 @@ export async function loadWpcFrentes({ simular = false } = {}) {
     .sort((a, b) => a.cerca.d - b.cerca.d)
     .map(l => ({ tipo: l.tipo, tipoEs: TIPOS_WPC[l.tipo], puntos: l.puntos, distCajaKm: Math.round(l.cerca.d), avance: l.tipo === 'COLD' ? calcularAvance(l.puntos, previo) : null }));
   // La clasificación de municipios (encima / se acerca / ya pasó) usa solo frentes fríos a 300 km o menos.
-  const frentes = elementos.filter(l => l.tipo === 'COLD' && l.distCajaKm <= MARGEN_KM).map(({ puntos, distCajaKm }) => ({ puntos, distCajaKm }));
+  const frentes = elementos.filter(l => l.tipo === 'COLD' && l.distCajaKm <= MARGEN_KM).map(({ puntos, distCajaKm, avance }) => ({ puntos, distCajaKm, avance }));
   // Para comparar con el SMN cuentan los frentes de cualquier tipo (no las vaguadas).
   const hayFrente300 = analizadas.some(l => l.tipo !== 'TROF' && l.cerca.d <= MARGEN_KM);
   const masCercano = analizadas.length ? analizadas.reduce((a, b) => (b.cerca.d < a.cerca.d ? b : a)) : null;
@@ -438,26 +438,50 @@ export async function loadWpcFrentes({ simular = false } = {}) {
   };
 }
 
+// Clasifica un municipio (desde las coordenadas de su cabecera) contra cada frente frío y se queda con el resultado más cercano.
+// Si la proyección de la cabecera sobre la línea cae más allá del primer o del último punto, no se decide "ya pasó" ni "se acerca"
+// por el lado de la línea: se usa la distancia al extremo más cercano. A más de 300 km es sin influencia; a 300 km o menos
+// es "se acerca" solo si el frente avanza hacia el municipio (según la dirección de avance calculada).
 function clasificarContraFrentes(lat, lon, frentes) {
-  let mejor = null;
+  const kx = 111.32 * Math.cos(lat * rad), ky = 110.57;
+  const resultados = [];
   for (const f of frentes) {
-    for (let i = 1; i < f.puntos.length; i++) {
-      const kx = 111.32 * Math.cos(lat * rad), ky = 110.57;
+    const n = f.puntos.length;
+    let mejor = null;
+    for (let i = 1; i < n; i++) {
       const ax = (f.puntos[i - 1][1] - lon) * kx, ay = (f.puntos[i - 1][0] - lat) * ky;
       const bx = (f.puntos[i][1] - lon) * kx, by = (f.puntos[i][0] - lat) * ky;
       const dx = bx - ax, dy = by - ay;
       const len2 = dx * dx + dy * dy;
-      const t = len2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
+      const tRaw = len2 ? -(ax * dx + ay * dy) / len2 : 0;
+      const t = Math.max(0, Math.min(1, tRaw));
       const d = Math.hypot(ax + t * dx, ay + t * dy);
-      // En el boletín WPC el aire frío queda a la derecha del sentido en que se listan los puntos.
-      if (!mejor || d < mejor.d) mejor = { d, cross: dx * -ay - dy * -ax };
+      if (!mejor || d < mejor.d) {
+        // En el boletín WPC el aire frío queda a la derecha del sentido en que se listan los puntos.
+        mejor = { d, cross: dx * -ay - dy * -ax, fuera: (i === 1 && tRaw < 0) || (i === n - 1 && tRaw > 1), ex: ax + t * dx, ey: ay + t * dy };
+      }
     }
+    if (mejor) resultados.push({ ...mejor, avance: f.avance });
   }
-  if (!mejor) return null;
-  const distKm = Math.round(mejor.d);
-  if (mejor.d < ENCIMA_KM) return { estado: 'encima', distKm };
-  if (mejor.cross < 0) return { estado: 'ya_paso', distKm };
-  if (mejor.d <= MARGEN_KM) return { estado: 'se_acerca', distKm };
+  if (!resultados.length) return null;
+
+  // Prioridad: un frente a menos de 50 km manda; luego los frentes cuya línea sí cubre al municipio; al final, los que no.
+  const cerca = resultados.filter(r => r.d < ENCIMA_KM);
+  const dentro = resultados.filter(r => !r.fuera);
+  const pool = cerca.length ? cerca : dentro.length ? dentro : resultados;
+  const r = pool.reduce((x, y) => (y.d < x.d ? y : x));
+  const distKm = Math.round(r.d);
+  if (r.d < ENCIMA_KM) return { estado: 'encima', distKm };
+  if (r.fuera) {
+    if (r.d > MARGEN_KM) return { estado: 'sin_influencia', distKm, fuera: true };
+    const av = r.avance;
+    // (ex, ey): del municipio al extremo; el vector del extremo al municipio es su opuesto.
+    const rum = av ? av.rumbo * rad : null;
+    const haciaMuni = av && av.estado !== 'casi_estacionario' ? (-r.ex) * Math.sin(rum) + (-r.ey) * Math.cos(rum) > 0 : false;
+    return { estado: haciaMuni ? 'se_acerca' : 'sin_influencia', distKm, fuera: true };
+  }
+  if (r.cross < 0) return { estado: 'ya_paso', distKm };
+  if (r.d <= MARGEN_KM) return { estado: 'se_acerca', distKm };
   return { estado: 'sin_influencia', distKm };
 }
 
