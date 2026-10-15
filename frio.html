@@ -10,8 +10,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css'">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>window.L || document.write('<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"><\/script>');</script>
 <style>
   :root{
     --ink: #0F1729;
@@ -137,7 +138,7 @@
   details.f-det summary{ cursor:pointer; color:var(--brass); }
   details.f-det p{ margin:6px 0 0; line-height:1.55; color:var(--paper); }
   .map-panel{ overflow:hidden; margin-bottom: 8px; }
-  #frenteMap{ width:100%; height: clamp(320px, 56vh, 520px); background:#0a1020; }
+  #frenteMap{ width:100%; height: 60vh; height: clamp(320px, 60vh, 560px); min-height: 320px; background:#cdd6e2; }
   .map-legend{ display:flex; flex-wrap:wrap; gap: 6px 16px; font-size:12px; margin-bottom: 18px; }
   .map-legend .dot{ width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:6px; }
   .map-legend .ln{ width:20px; height:4px; background:#2F6BFF; display:inline-block; margin-right:6px; vertical-align:2px; border-radius:2px; }
@@ -151,7 +152,7 @@
   .pub-btn[disabled]{ opacity:.45; cursor:not-allowed; }
   .pub-btn.sec{ background:transparent; color:var(--paper); border:1px solid var(--rule); }
   .pub-note{ font-size:12px; color:var(--slate); }
-  .pub-modal{ position:fixed; inset:0; background:rgba(5,9,18,.86); z-index:2000; display:flex; align-items:center; justify-content:center; padding:16px; }
+  .pub-modal{ position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(5,9,18,.86); z-index:2000; display:flex; align-items:center; justify-content:center; padding:16px; }
   .pub-modal[hidden]{ display:none; }
   .pub-box{ background:var(--panel); border:1px solid var(--rule); border-radius:14px; padding:14px; max-width:min(720px,100%); max-height:100%; display:flex; flex-direction:column; gap:12px; overflow:auto; }
   .pub-box canvas{ width:100%; height:auto; max-height:70vh; max-width:70vh; align-self:center; border-radius:8px; background:#0F1729; }
@@ -473,6 +474,7 @@
   let fmap = null;
   function ensureMap(){
     if(fmap) return fmap;
+    if(typeof L === 'undefined') throw new Error('No se pudo cargar la librería del mapa (Leaflet). Revisa tu conexión y recarga.');
     fmap = L.map('frenteMap', { scrollWheelZoom: false, zoomSnap: 0.25, zoomDelta: 0.5 });
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
       attribution: 'Tiles &copy; Esri &mdash; Source: Esri, HERE, Garmin, USGS, Intermap', maxZoom: 12
@@ -536,6 +538,17 @@
     });
     setTimeout(ajustarVista, 150);
     window.addEventListener('load', ajustarVista, { once: true });
+    vigilarTamano();
+  }
+  // El mapa se recalcula al cambiar el tamaño o la orientación de la pantalla (y cuando su contenedor cambia de tamaño).
+  let vigilando = false;
+  function vigilarTamano(){
+    if(vigilando) return;
+    vigilando = true;
+    const recalcular = () => { if(fmap) fmap.invalidateSize(); };
+    window.addEventListener('resize', recalcular);
+    window.addEventListener('orientationchange', () => setTimeout(() => { if(fmap) ajustarVista(); }, 300));
+    if(window.ResizeObserver) new ResizeObserver(recalcular).observe(document.getElementById('frenteMap'));
   }
 
   // Línea informativa arriba del mapa: hora del análisis WPC (hora de Sonora) y estado de Open-Meteo.
@@ -846,7 +859,9 @@
 
   function initPublicar(){
     const modal = document.getElementById('pubModal');
-    const canvas = document.getElementById('pubCanvas');
+    const vista = document.getElementById('pubCanvas');
+    const canvas = document.createElement('canvas');   // lienzo fuera de pantalla: nunca está sobre el mapa
+    canvas.width = PUB_W; canvas.height = PUB_W;
     const msg = document.getElementById('pubMsg');
     const dl = document.getElementById('pubDescargar');
     const cerrar = () => { modal.hidden = true; };
@@ -858,6 +873,7 @@
       modal.hidden = false; dl.disabled = true; msg.textContent = 'Generando imagen…';
       try{
         const r = await dibujarPublicar(frenteData, canvas);
+        const vc = vista.getContext('2d'); vc.clearRect(0, 0, vista.width, vista.height); vc.drawImage(canvas, 0, 0);
         msg.textContent = r.sinMapa ? `Imagen lista (no se pudieron cargar ${r.sinMapa} de ${r.totalTiles} piezas del mapa base).` : 'Imagen lista.';
         dl.disabled = false;
       }catch(err){
