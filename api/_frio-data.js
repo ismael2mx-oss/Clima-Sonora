@@ -1,22 +1,12 @@
 import { MUNICIPIOS } from './_municipios.js';
+import { loadOpenMeteo } from './_openmeteo.js';
 
-// Pide 1 día extra hacia atrás (past_days=1) para poder comparar el primer día
+// Datos diarios (con 1 día extra hacia atrás, past_days=1) para poder comparar el primer día
 // del pronóstico contra el día anterior real, igual que el resto de la serie.
+// Sale de la misma consulta única a Open-Meteo que usan las señales del frente frío.
 export async function loadSonoraFrio() {
-  const lats = MUNICIPIOS.map(m => m.lat).join(',');
-  const lons = MUNICIPIOS.map(m => m.lon).join(',');
-  const vars = [
-    'temperature_2m_max', 'temperature_2m_min', 'apparent_temperature_min',
-    'wind_gusts_10m_max', 'wind_direction_10m_dominant', 'snowfall_sum',
-    'precipitation_probability_max'
-  ].join(',');
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&daily=${vars}&timezone=America/Hermosillo&past_days=1&forecast_days=5`;
-
-  const upstream = await fetch(url);
-  if (!upstream.ok) throw new Error('Open-Meteo no disponible.');
-  const data = await upstream.json();
-  const list = Array.isArray(data) ? data : [data];
-  if (list.length !== MUNICIPIOS.length) throw new Error('Respuesta incompleta de Open-Meteo.');
+  const om = await loadOpenMeteo();
+  const list = om.list;
 
   const allDias = list[0]?.daily?.time || [];
   // allDias[0] es "ayer" (solo referencia para comparar); los 5 días a mostrar empiezan en el índice 1.
@@ -35,5 +25,5 @@ export async function loadSonoraFrio() {
     };
   });
 
-  return { allDias, dias: allDias.slice(1), municipios };
+  return { allDias, dias: allDias.slice(1), municipios, datosDe: om.datosDe, desdeCache: om.desdeCache, motivo: om.motivo };
 }

@@ -192,6 +192,24 @@ const failure = (what, err) => `[No disponible: no se pudo consultar ${what}. Mo
 const fmtLat = v => Math.abs(v).toFixed(1) + '°' + (v >= 0 ? 'N' : 'S');
 const fmtLon = v => Math.abs(v).toFixed(1) + '°' + (v >= 0 ? 'E' : 'O');
 const fmtLocal = s => fmtShort(new Date(localStringToMs(s)));
+const horaSonora = iso => new Intl.DateTimeFormat('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TZ }).format(new Date(iso));
+
+function avanceTexto(a) {
+  const hacia = `hacia el ${a.rumboTxt} (rumbo ${a.rumbo}°)`;
+  if (a.base !== 'comparacion') return `${hacia}; dirección inferida de la forma del frente (no hay análisis anterior del WPC disponible para medir la rapidez)`;
+  const ref = `comparado con el análisis de las ${horaSonora(a.previoValido)} h de Sonora, ${a.previoHoras} h antes`;
+  if (a.estado === 'casi_estacionario') return `casi estacionario (menos de 5 km/h; ${a.desplazKm} km en ${a.previoHoras} h), ${ref}`;
+  if (a.estado === 'retrocede') return `retrocede (${hacia}) a ${a.velKmh} km/h, ${ref}`;
+  return `${hacia} a ${a.velKmh} km/h (${a.desplazKm} km en ${a.previoHoras} h), ${ref}`;
+}
+
+// Aviso al inicio del texto cuando se usan datos guardados de Open-Meteo porque la consulta actual falló.
+function avisoDatosGuardados(estado, frio) {
+  const fuente = [estado?.senales, frio].find(x => x && x.desdeCache);
+  if (!fuente) return null;
+  return `Datos de Open-Meteo de las ${horaSonora(fuente.datosDe)} h (la consulta actual falló ${fuente.motivo || 'por un error de Open-Meteo'})`;
+}
+
 const diaCorto = d => cap(dayFmt.format(new Date(d + 'T12:00:00Z')));
 const listaNombres = arr => (arr.length ? `${arr.length} — ${arr.join(', ')}` : '0 — ninguno');
 
@@ -223,11 +241,13 @@ function frenteSection(e) {
     const horas = w.valido ? Math.round((Date.now() - Date.parse(w.valido)) / 3600000) : null;
     const viejo = horas !== null && horas > 9 ? `, con ${horas} h de antigüedad` : '';
     L.push(`- Posición WPC (${analisis}${viejo}; ${w.fuente === 'simulación' ? 'SIMULACIÓN' : 'boletín codificado de frentes de superficie, WPC/NOAA'}):`);
+    if (w.previo) L.push(`    (Análisis anterior usado para medir el avance: válido ${fmtFull(new Date(w.previo.valido))}, ${w.previo.horas} h antes; archivo de IEM/Iowa State.)`);
     if (w.elementos.length) {
       L.push(`    Frentes y vaguadas a 600 km o menos de Sonora: ${w.elementos.length} (de ${w.totalElementos} en el boletín de Norteamérica)`);
       w.elementos.forEach((x, i) => {
-        const a = x.puntos[0], b = x.puntos[x.puntos.length - 1];
-        L.push(`    ${i + 1}. ${cap(x.tipoEs)}: ${x.distCajaKm === 0 ? 'cruza Sonora' : `a ${x.distCajaKm} km de Sonora`} (de ${fmtLat(a[0])} ${fmtLon(a[1])} a ${fmtLat(b[0])} ${fmtLon(b[1])})`);
+        L.push(`    ${i + 1}. ${cap(x.tipoEs)}: ${x.distCajaKm === 0 ? 'cruza Sonora' : `a ${x.distCajaKm} km de Sonora`}`);
+        L.push(`       Puntos (${x.puntos.length}, en el orden del boletín): ${x.puntos.map(p => `${fmtLat(p[0])} ${fmtLon(p[1])}`).join(' → ')}`);
+        if (x.avance) L.push(`       Avance: ${avanceTexto(x.avance)}`);
       });
     } else if (w.masCercano) {
       L.push(`    Sin frentes ni vaguadas a 600 km o menos de Sonora; el más cercano es ${w.masCercano.tipoEs} a ${w.masCercano.distKm} km (cerca de ${fmtLat(w.masCercano.lat)} ${fmtLon(w.masCercano.lon)}), entre ${w.totalElementos} elementos del boletín.`);
@@ -240,7 +260,7 @@ function frenteSection(e) {
 
   const g = e.grupos;
   const total = e.municipios.length;
-  const suma = g.encima.length + g.seAcerca.length + g.yaPaso.length + g.paso.length + g.aire.length + g.sinSenal.length;
+  const suma = g.encima.length + g.seAcerca.length + g.yaPaso.length + g.paso.length + g.aire.length + g.sinSenal.length + g.sinDatos.length;
   L.push(`- Municipios afectados (clasificación de los ${total}, cada uno en una sola categoría):`);
   // La distancia al frente frío más cercano se mide desde las coordenadas de la cabecera municipal.
   const conKm = cat => e.municipios.filter(m => m.categoria === cat).sort((a, b) => a.wpc.distKm - b.wpc.distKm).map(m => `${m.municipio} (${m.wpc.distKm} km)`);
@@ -251,6 +271,7 @@ function frenteSection(e) {
   if (!e.senales.ok) {
     L.push(`    Paso de frente probable y aire más seco/fresco: no disponible (${e.senales.error})`);
   } else {
+    if (e.senales.desdeCache) L.push(`    (Señales calculadas con datos guardados de Open-Meteo de las ${horaSonora(e.senales.datosDe)} h.)`);
     L.push(`    Paso de frente probable (subida de presión obligatoria y 3 de 4 señales; próximas 72 h, hora de Sonora): ${g.paso.length} municipio(s) en ${e.eventos.length} evento(s)`);
     if (!e.eventos.length) L.push('      Ningún municipio cumple los criterios.');
     e.eventos.forEach(ev => {
@@ -264,7 +285,9 @@ function frenteSection(e) {
     aire.forEach(m => { const d = m.aire.estimado.slice(0, 10); porDia.set(d, [...(porDia.get(d) || []), `${m.municipio} (${m.aire.estimado.slice(11, 16)} h)`]); });
     porDia.forEach((items, d) => L.push(`      ${diaCorto(d)}: ${items.join(', ')}`));
   }
-  L.push(`    ${e.senales.ok ? 'Sin señal' : 'Sin clasificar por falta de Open-Meteo'}: ${listaNombres(g.sinSenal)}`);
+  L.push(`    Sin influencia cercana (el frente está a más de 300 km y no hay señales de Open-Meteo): ${listaNombres(g.sinSenal)}`);
+  const faltan = [!e.senales.ok ? 'Open-Meteo' : null, !e.wpc.ok ? 'WPC' : null].filter(Boolean).join(' y ');
+  L.push(`    Sin datos${g.sinDatos.length ? ` (no se pudieron clasificar por falta de ${faltan})` : ''}: ${listaNombres(g.sinDatos)}`);
   L.push(`    Suma de categorías: ${suma} de ${total}${suma === total ? '' : ' (REVISAR: no coincide)'}`);
 
   if (e.senales.ok) {
@@ -278,6 +301,8 @@ export async function buildResumenFrio({ simular = false } = {}) {
 
   const parts = [];
   const now = new Date();
+  const aviso = avisoDatosGuardados(estadoR.status === 'fulfilled' ? estadoR.value : null, frioR.status === 'fulfilled' ? frioR.value : null);
+  if (aviso) parts.push(aviso, '');
   parts.push('RESUMEN DE FRENTES FRÍOS, HELADAS Y VIENTO EN SONORA');
   parts.push(`Generado: ${fmtFull(now)} (hora de Sonora, UTC-7)`);
   parts.push('Fuentes: Servicio Meteorológico Nacional (texto oficial), WPC/NOAA (posición de frentes), Open-Meteo (temperatura, viento, presión, nieve; 72 municipios) y National Weather Service (avisos de Arizona). Datos con hasta 15 minutos de retraso por caché.');
@@ -309,8 +334,10 @@ export async function buildResumenFrio({ simular = false } = {}) {
   parts.push(azR.status === 'rejected' ? failure('los avisos activos del NWS para Arizona', azR.reason) : alertasSection(azR.value));
   parts.push('');
 
-  const ok = estadoR.status === 'fulfilled' && !estadoR.value.hayError && frioR.status === 'fulfilled' && azR.status === 'fulfilled';
-  return { text: parts.join('\n'), ok };
+  const text = parts.join('\n');
+  // Nada que traiga "No disponible", un error o datos guardados se deja en caché.
+  const ok = estadoR.status === 'fulfilled' && !estadoR.value.hayError && frioR.status === 'fulfilled' && !frioR.value.desdeCache && azR.status === 'fulfilled' && !/no disponible/i.test(text);
+  return { text, ok };
 }
 
 export async function respondResumenFrio(req, res) {

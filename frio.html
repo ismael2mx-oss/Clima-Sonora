@@ -129,7 +129,7 @@
   .f-main.muted{ color:var(--slate); font-weight:500; font-size:15px; }
   .f-sub{ font-size:12px; color:var(--slate); line-height:1.5; margin-top:2px; }
   .f-quote{ margin: 6px 0 2px; padding-left: 10px; border-left: 2px solid var(--rule); font-size:12.5px; line-height:1.5; color:var(--paper); }
-  .f-counters{ display:grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 10px 0 6px; }
+  .f-counters{ display:grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin: 10px 0 6px; }
   .f-counter{ background: var(--panel-light); border-radius: 10px; padding: 10px 8px; text-align:center; }
   .f-counter .n{ font-family:'IBM Plex Mono',monospace; font-size:22px; font-weight:600; color:var(--brass); }
   .f-counter .l{ font-size:11px; color:var(--slate); margin-top:2px; }
@@ -141,10 +141,30 @@
   .map-legend{ display:flex; flex-wrap:wrap; gap: 6px 16px; font-size:12px; margin-bottom: 18px; }
   .map-legend .dot{ width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:6px; }
   .map-legend .ln{ width:20px; height:4px; background:#2F6BFF; display:inline-block; margin-right:6px; vertical-align:2px; border-radius:2px; }
+  .map-info{ font-size:12.5px; color:var(--slate); margin: 0 0 8px; line-height:1.55; }
+  .map-info b{ color:var(--paper); font-weight:600; }
+  .map-info .warn{ color:#FFB84D; }
+  .map-legend .dot.nodata{ background:#D9DEE8; border:1.5px dotted #5E6A85; width:11px; height:11px; vertical-align:-1px; }
+  .map-legend .arr{ display:inline-block; margin-right:6px; color:#2F6BFF; font-weight:700; }
+  .pub-row{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin: 0 0 18px; }
+  .pub-btn{ font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:.04em; background:var(--brass); color:var(--ink); border:none; border-radius:8px; padding:9px 14px; cursor:pointer; font-weight:600; }
+  .pub-btn[disabled]{ opacity:.45; cursor:not-allowed; }
+  .pub-btn.sec{ background:transparent; color:var(--paper); border:1px solid var(--rule); }
+  .pub-note{ font-size:12px; color:var(--slate); }
+  .pub-modal{ position:fixed; inset:0; background:rgba(5,9,18,.86); z-index:2000; display:flex; align-items:center; justify-content:center; padding:16px; }
+  .pub-modal[hidden]{ display:none; }
+  .pub-box{ background:var(--panel); border:1px solid var(--rule); border-radius:14px; padding:14px; max-width:min(720px,100%); max-height:100%; display:flex; flex-direction:column; gap:12px; overflow:auto; }
+  .pub-box canvas{ width:100%; height:auto; max-height:70vh; max-width:70vh; align-self:center; border-radius:8px; background:#0F1729; }
+  .pub-actions{ display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+  .frente-arrow{ background:none; border:none; }
+  .fa{ position:relative; width:40px; height:40px; }
+  .fa svg{ display:block; overflow:visible; }
+  .fa span{ position:absolute; top:38px; left:50%; transform:translateX(-50%); white-space:nowrap; font:600 11px 'IBM Plex Mono',monospace; color:#0F1729; text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff,0 0 3px #fff; }
   .leaflet-popup-content{ font-family:'IBM Plex Sans',sans-serif; font-size:13px; line-height:1.5; }
   @media (max-width: 640px){
     .cards{ grid-template-columns: 1fr; }
     .f-counters{ grid-template-columns: repeat(2, 1fr); }
+    .pub-btn{ width:100%; }
   }
   @media (max-width: 520px){
     .daytab .ds{ display:none; }
@@ -164,6 +184,7 @@
       <div class="frente-head"><span class="eyebrow">ESTADO DEL FRENTE FRÍO</span><span id="frenteSim" class="sim-badge" hidden>SIMULACIÓN</span></div>
       <div id="frenteBody"><p class="f-sub">Consultando SMN, WPC/NOAA y Open-Meteo…</p></div>
     </div>
+    <p class="map-info" id="mapInfo"></p>
     <div class="panel map-panel"><div id="frenteMap"></div></div>
     <div class="map-legend">
       <span><span class="ln"></span>Frente frío</span>
@@ -173,8 +194,24 @@
       <span><span class="dot" style="background:#FF3B30"></span>Frente encima (&lt;50 km)</span>
       <span><span class="dot" style="background:#FF9F1C"></span>Se acerca (50-300 km)</span>
       <span><span class="dot" style="background:#6EA8FF"></span>Ya pasó</span>
+      <span><span class="arr">&#10148;</span>Dirección de avance del frente frío</span>
       <span><span class="dot" style="background:#8993A8"></span>Sin influencia cercana</span>
-      <span><span class="dot" style="background:transparent;border:2px solid #FFE066;width:8px;height:8px"></span>Paso probable (Open-Meteo)</span>
+      <span id="lgNodata" hidden><span class="dot nodata"></span>Sin datos</span>
+      <span id="lgPaso"><span class="dot" style="background:transparent;border:2px solid #FFE066;width:8px;height:8px"></span>Paso probable (Open-Meteo)</span>
+    </div>
+    <div class="pub-row">
+      <button type="button" class="pub-btn" id="btnPublicar" disabled>Versión para publicar</button>
+      <span class="pub-note" id="pubNote">Imagen cuadrada de 1080 × 1080 con solo los frentes fríos, lista para redes.</span>
+    </div>
+    <div class="pub-modal" id="pubModal" hidden role="dialog" aria-modal="true" aria-label="Versión para publicar">
+      <div class="pub-box">
+        <canvas id="pubCanvas" width="1080" height="1080"></canvas>
+        <div class="pub-actions">
+          <button type="button" class="pub-btn sec" id="pubCerrar">Cerrar</button>
+          <button type="button" class="pub-btn" id="pubDescargar">Descargar PNG</button>
+        </div>
+        <div class="pub-note" id="pubMsg"></div>
+      </div>
     </div>
   </section>
 
@@ -399,7 +436,9 @@
       frio = data;
       const gen = new Date(data.generado);
       const genFmt = new Intl.DateTimeFormat('es-MX', { dateStyle: 'long', timeStyle: 'short', timeZone: 'America/Hermosillo' });
-      subtitleEl.textContent = `Consultado ${genFmt.format(gen)} h (hora de Sonora)`;
+      subtitleEl.textContent = data.desdeCache
+        ? `Datos de Open-Meteo de las ${hhmm(data.datosDe)} h (la consulta actual falló ${data.motivo || 'por un error de Open-Meteo'})`
+        : `Consultado ${genFmt.format(gen)} h (hora de Sonora)`;
       renderAll();
     }catch(err){
       subtitleEl.textContent = 'No se pudo cargar la información de Open-Meteo. Intenta de nuevo en unos minutos.';
@@ -417,15 +456,20 @@
   const fromLocal = s => new Date(s + ':00-07:00');
   const diaTxt = d => fDia.format(new Date(d + 'T12:00:00Z'));
 
-  const ESTADO_COLOR = { encima: '#FF3B30', se_acerca: '#FF9F1C', ya_paso: '#6EA8FF', sin_influencia: '#8993A8' };
-  const ESTADO_TXT = { encima: 'Frente encima', se_acerca: 'El frente se acerca', ya_paso: 'El frente ya pasó', sin_influencia: 'Sin influencia cercana' };
+  // Color de cada municipio según su categoría (la misma que usa el texto, para que mapa y texto coincidan).
+  const CAT_COLOR = { encima: '#FF3B30', se_acerca: '#FF9F1C', ya_paso: '#6EA8FF', paso: '#8993A8', aire: '#8993A8', sin_senal: '#8993A8', sin_datos: '#D9DEE8' };
+  const CAT_TXT = { encima: 'Frente encima', se_acerca: 'El frente se acerca', ya_paso: 'El frente ya pasó', paso: 'Paso de frente probable', aire: 'Aire más seco/fresco', sin_senal: 'Sin influencia cercana', sin_datos: 'Sin datos (falta una fuente)' };
   const TIPO_ESTILO = {
     COLD: { color: '#2F6BFF', weight: 5, dash: null },
     STNRY: { color: '#7A4CFF', weight: 4, dash: '10 6' },
     OCFNT: { color: '#C2185B', weight: 4, dash: null },
     TROF: { color: '#B9770E', weight: 3, dash: '3 6' }
   };
+  // Un municipio con paso probable se pinta con el color de su estado WPC (naranja si el frente se acerca, gris si no).
+  const fillDe = m => m.categoria === 'paso' ? (m.wpc && m.wpc.estado === 'se_acerca' ? CAT_COLOR.se_acerca : CAT_COLOR.sin_senal) : (CAT_COLOR[m.categoria] || CAT_COLOR.sin_senal);
+  const hhmm = iso => new Intl.DateTimeFormat('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TZ_SON }).format(new Date(iso));
 
+  let frenteData = null;
   let fmap = null;
   function ensureMap(){
     if(fmap) return fmap;
@@ -433,8 +477,31 @@
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
       attribution: 'Tiles &copy; Esri &mdash; Source: Esri, HERE, Garmin, USGS, Intermap', maxZoom: 12
     }).addTo(fmap);
-    fmap.fitBounds([[26.2, -115.8], [32.9, -108.0]], { padding: [6, 6] });
+    ajustarVista();
     return fmap;
+  }
+  // Si el contenedor todavía no tenía su tamaño final al crear el mapa, la vista quedaba mal encuadrada: se recalcula.
+  function ajustarVista(){
+    fmap.invalidateSize();
+    fmap.fitBounds([[26.2, -115.8], [32.9, -108.0]], { padding: [6, 6] });
+  }
+
+  const ARROW_PATH = 'M0,-17 L11,3 L3,0 L3,16 L-3,16 L-3,0 L-11,3 Z'; // apunta al norte; se rota con el rumbo
+  function arrowIcon(av){
+    const col = av.estado === 'casi_estacionario' ? '#8993A8' : '#2F6BFF';
+    const lbl = av.velKmh != null ? `${av.rumboTxt} · ${av.velKmh} km/h` : av.rumboTxt;
+    return L.divIcon({
+      className: 'frente-arrow', iconSize: [40, 40], iconAnchor: [20, 20],
+      html: `<div class="fa"><svg width="40" height="40" viewBox="-20 -20 40 40" style="transform:rotate(${av.rumbo}deg)"><path d="${ARROW_PATH}" fill="#fff" stroke="#fff" stroke-width="6" stroke-linejoin="round"/><path d="${ARROW_PATH}" fill="${col}" stroke="#0F1729" stroke-width="1.2" stroke-linejoin="round"/></svg><span>${esc(lbl)}</span></div>`
+    });
+  }
+  function avanceTxt(av){
+    const hacia = `hacia el ${av.rumboTxt} (rumbo ${av.rumbo}°)`;
+    if(av.base !== 'comparacion') return `${hacia}; dirección inferida de la forma del frente (sin análisis anterior para medir la rapidez)`;
+    const ref = `comparado con el análisis de las ${hhmm(av.previoValido)} h de Sonora, ${av.previoHoras} h antes`;
+    if(av.estado === 'casi_estacionario') return `casi estacionario (menos de 5 km/h; ${av.desplazKm} km en ${av.previoHoras} h), ${ref}`;
+    if(av.estado === 'retrocede') return `retrocede (${hacia}) a ${av.velKmh} km/h, ${ref}`;
+    return `${hacia} a ${av.velKmh} km/h (${av.desplazKm} km en ${av.previoHoras} h), ${ref}`;
   }
 
   function drawMap(e){
@@ -444,20 +511,52 @@
       L.polyline(f.puntos, { color: '#FFFFFF', weight: st.weight + 4, opacity: .85, interactive: false }).addTo(map);
       L.polyline(f.puntos, { color: st.color, weight: st.weight, opacity: 1, dashArray: st.dash }).bindTooltip(`${cap(f.tipoEs)} (WPC) · ${f.distCajaKm === 0 ? 'cruza Sonora' : f.distCajaKm + ' km de Sonora'}`, { sticky: true }).addTo(map);
     });
+    // Los halos de "paso probable" solo se dibujan si hay señales de Open-Meteo (nuevas o guardadas).
+    const conSenales = !!e.senales.ok;
     e.municipios.forEach(m => {
-      const estado = m.wpc ? m.wpc.estado : null;
-      const color = ESTADO_COLOR[estado] || '#8993A8';
-      const paso = m.paso;
+      const sinDatos = m.categoria === 'sin_datos';
+      const paso = conSenales ? m.paso : null;
       const mk = L.circleMarker([m.lat, m.lon], {
-        radius: paso ? 7 : 5, color: paso ? '#FFE066' : '#0F1729', weight: paso ? 3 : 1, fillColor: color, fillOpacity: 1
+        radius: paso ? 7 : (sinDatos ? 6 : 5),
+        color: paso ? '#FFE066' : (sinDatos ? '#5E6A85' : '#0F1729'),
+        weight: paso ? 3 : (sinDatos ? 1.5 : 1),
+        dashArray: sinDatos ? '2 2.5' : null,
+        opacity: .8, fillColor: fillDe(m), fillOpacity: .8
       });
-      const lines = [`<b>${esc(m.municipio)}</b>`];
-      if(m.wpc) lines.push(`${ESTADO_TXT[estado]} · ${m.wpc.distKm} km del frente`);
+      const lines = [`<b>${esc(m.municipio)}</b>`, CAT_TXT[m.categoria] || ''];
+      if(m.wpc) lines.push(`${m.wpc.distKm} km del frente frío más cercano (desde la cabecera municipal)`);
       else if(!e.wpc.ok) lines.push('Posición del frente no disponible');
       if(paso) lines.push(`Paso probable: ${fShort.format(fromLocal(paso.estimado))} h (${paso.nSenales} de 4 señales)`, esc(paso.senales.map(s => s.texto).join('; ')));
-      mk.bindPopup(lines.join('<br>')).addTo(map);
+      mk.bindPopup(lines.filter(Boolean).join('<br>')).addTo(map);
     });
-    setTimeout(() => map.invalidateSize(), 150);
+    // Flecha de avance sobre cada frente frío (dirección según la comparación con el análisis anterior del WPC).
+    (e.wpc.ok ? e.wpc.elementos : []).filter(f => f.tipo === 'COLD' && f.avance && f.avance.lat != null).forEach(f => {
+      L.marker([f.avance.lat, f.avance.lon], { icon: arrowIcon(f.avance), keyboard: false })
+        .bindTooltip(`Frente frío: ${avanceTxt(f.avance)}`, { direction: 'top', offset: [0, -14] }).addTo(map);
+    });
+    setTimeout(ajustarVista, 150);
+    window.addEventListener('load', ajustarVista, { once: true });
+  }
+
+  // Línea informativa arriba del mapa: hora del análisis WPC (hora de Sonora) y estado de Open-Meteo.
+  function renderMapInfo(e){
+    const parts = [];
+    if(e.wpc.ok && e.wpc.valido){
+      const horas = Math.round((Date.now() - Date.parse(e.wpc.valido)) / 3600000);
+      parts.push(`Análisis del WPC: <b>${esc(fFull.format(new Date(e.wpc.valido)))} h</b> (hora de Sonora)${horas > 0 ? ` · hace ${horas} h` : ''}`);
+    }else if(e.wpc.ok){
+      parts.push('Análisis del WPC: hora no disponible');
+    }else{
+      parts.push('<span class="warn">Posición del WPC no disponible: no se dibujan frentes.</span>');
+    }
+    if(e.senales.ok && e.senales.desdeCache){
+      parts.push(`<span class="warn">Señales de Open-Meteo con datos guardados de las ${esc(hhmm(e.senales.datosDe))} h (la consulta actual falló ${esc(e.senales.motivo || 'por un error de Open-Meteo')}).</span>`);
+    }else if(!e.senales.ok){
+      parts.push('<span class="warn">Open-Meteo no disponible: sin halos de paso probable; los municipios que no se pudieron clasificar van en gris claro con borde punteado ("Sin datos").</span>');
+    }
+    document.getElementById('mapInfo').innerHTML = parts.join('<br>');
+    document.getElementById('lgPaso').hidden = !e.senales.ok;
+    document.getElementById('lgNodata').hidden = !e.grupos.sinDatos.length;
   }
 
   function nombres(arr){
@@ -494,7 +593,7 @@
       let lista;
       if(w.elementos.length){
         lista = `<div class="f-main">${w.elementos.length} frente(s) y vaguada(s) a 600 km o menos de Sonora</div>
-          <details class="f-det"><summary>Ver detalle</summary><p>${w.elementos.map(x => `<b>${esc(cap(x.tipoEs))}</b>: ${x.distCajaKm === 0 ? 'cruza Sonora' : 'a ' + x.distCajaKm + ' km de Sonora'} (de ${fmtLat(x.puntos[0][0])} ${fmtLon(x.puntos[0][1])} a ${fmtLat(x.puntos[x.puntos.length - 1][0])} ${fmtLon(x.puntos[x.puntos.length - 1][1])})`).join('<br>')}</p></details>`;
+          <details class="f-det"><summary>Ver detalle</summary><p>${w.elementos.map(x => `<b>${esc(cap(x.tipoEs))}</b>: ${x.distCajaKm === 0 ? 'cruza Sonora' : 'a ' + x.distCajaKm + ' km de Sonora'}<br>Puntos (${x.puntos.length}, en el orden del boletín): ${x.puntos.map(p => `${fmtLat(p[0])} ${fmtLon(p[1])}`).join(' → ')}${x.avance ? `<br>Avance: ${esc(avanceTxt(x.avance))}` : ''}`).join('<br><br>')}</p></details>`;
       }else if(w.masCercano){
         lista = `<div class="f-main muted">Sin frentes ni vaguadas a 600 km o menos de Sonora. El más cercano es ${esc(w.masCercano.tipoEs)} a ${w.masCercano.distKm} km.</div>`;
       }else{
@@ -511,6 +610,7 @@
     const sin = [];
     if(!e.wpc.ok) sin.push('sin clasificación WPC');
     if(!e.senales.ok) sin.push('sin señales de Open-Meteo');
+    if(e.senales.ok && e.senales.desdeCache) sin.push('señales con datos guardados');
     const cercanos = g.encima.length + g.seAcerca.length;
     // La distancia al frente frío más cercano se mide desde la cabecera municipal.
     const conKm = cat => e.municipios.filter(m => m.categoria === cat).sort((a, b) => a.wpc.distKm - b.wpc.distKm).map(m => `${m.municipio} (${m.wpc.distKm} km)`);
@@ -520,7 +620,8 @@
         <div class="f-counter"><div class="n">${g.aire.length}</div><div class="l">Aire seco/fresco</div></div>
         <div class="f-counter"><div class="n">${cercanos}</div><div class="l">Frente cerca</div></div>
         <div class="f-counter"><div class="n">${g.yaPaso.length}</div><div class="l">Ya pasó</div></div>
-        <div class="f-counter"><div class="n">${g.sinSenal.length}</div><div class="l">${e.senales.ok ? 'Sin señal' : 'Sin clasificar'}</div></div>
+        <div class="f-counter"><div class="n">${g.sinSenal.length}</div><div class="l">Sin influencia</div></div>
+        <div class="f-counter"><div class="n">${g.sinDatos.length}</div><div class="l">Sin datos</div></div>
       </div>
       ${g.encima.length ? `<div class="f-sub">Frente encima (&lt;50 km de la cabecera municipal)</div>${nombres(conKm('encima'))}` : ''}
       ${g.seAcerca.length ? `<div class="f-sub">Se acerca (50-300 km de la cabecera, sin pasar)</div>${nombres(conKm('se_acerca'))}` : ''}
@@ -537,11 +638,246 @@
       const aire = e.municipios.filter(m => m.categoria === 'aire').sort((a, b) => a.aire.estimado.localeCompare(b.aire.estimado));
       const aireHtml = aire.length ? `<div class="f-sub" style="margin-top:8px">Aire más seco/fresco (2 señales; no es paso de frente): ${aire.length}</div>
         <details class="f-det"><summary>Ver municipios</summary><p>${aire.map(m => `${esc(m.municipio)} (${fShort.format(fromLocal(m.aire.estimado))} h)`).join(', ')}</p></details>` : '';
-      const sinHtml = g.sinSenal.length ? `<div class="f-sub" style="margin-top:8px">${e.senales.ok ? 'Sin señal' : 'Sin clasificar'}: ${g.sinSenal.length}</div>${nombres(g.sinSenal)}` : '';
-      rows.push(`<div class="f-row"><div class="f-label">Paso de frente probable (presión obligatoria y 3 de 4 señales, próximas 72 h)</div>${evs}${aireHtml}${sinHtml}
+      const sinHtml = (g.sinSenal.length ? `<div class="f-sub" style="margin-top:8px">Sin influencia cercana (frente a más de 300 km y sin señales): ${g.sinSenal.length}</div>${nombres(g.sinSenal)}` : '') + (g.sinDatos.length ? `<div class="f-sub" style="margin-top:8px">Sin datos (falta ${[!e.senales.ok ? 'Open-Meteo' : '', !e.wpc.ok ? 'WPC' : ''].filter(Boolean).join(' y ')}): ${g.sinDatos.length}</div>${nombres(g.sinDatos)}` : '');
+      const guardados = e.senales.desdeCache ? `<div class="f-sub" style="color:#FFB84D">Señales calculadas con datos guardados de Open-Meteo de las ${esc(hhmm(e.senales.datosDe))} h (la consulta actual falló ${esc(e.senales.motivo || 'por un error de Open-Meteo')}).</div>` : '';
+      rows.push(`<div class="f-row"><div class="f-label">Paso de frente probable (presión obligatoria y 3 de 4 señales, próximas 72 h)</div>${guardados}${evs}${aireHtml}${sinHtml}
         <div class="f-sub" style="margin-top:8px">Señales: viento del N/NO/NE sostenido 3 h, presión +3 hPa en 12 h (obligatoria), punto de rocío −5 °C en 12 h y temperatura −5 °C; cada una se confirma contra la misma hora del día anterior. Eventos: los pasos de todos los municipios se ordenan por hora y se abre uno nuevo cuando hay más de 18 h entre un paso y el siguiente; con menos de 5 municipios es señal aislada (baja confianza).</div></div>`);
     }
     body.innerHTML = rows.join('');
+    frenteData = e;
+    renderMapInfo(e);
+    prepararPublicar(e);
+  }
+
+  // ===== Versión para publicar (imagen cuadrada de 1080 x 1080) =====
+  const PUB_W = 1080, PUB_TOP = 176, PUB_MAP_H = 752;
+  const PUB_VISTA = { latMin: 26.2, latMax: 32.9, centroLon: -111.0 };
+  const PUB_COLOR = { rojo: '#E5231B', naranja: '#FF8A00', azul: '#3E8BFF' };
+  const PUB_LINEA = '#1F5BFF';
+  const PUB_BASE = (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/${z}/${y}/${x}`;
+  const PUB_CIUDADES = [
+    { nombre: 'Nogales', mun: 'Nogales', lado: 'l' },
+    { nombre: 'Agua Prieta', mun: 'Agua Prieta', lado: 'r' },
+    { nombre: 'Cananea', mun: 'Cananea', lado: 'r' },
+    { nombre: 'Magdalena', mun: 'Magdalena', lado: 'r' },
+    { nombre: 'Caborca', mun: 'Caborca', lado: 'l' },
+    { nombre: 'Hermosillo', mun: 'Hermosillo', lado: 'r' },
+    { nombre: 'Guaymas', mun: 'Guaymas', lado: 'l' },
+    { nombre: 'Ciudad Obregón', mun: 'Cajeme', lado: 'r' },
+    { nombre: 'Navojoa', mun: 'Navojoa', lado: 'r' }
+  ];
+  const PUB_LEYENDA = [['rojo', 'El frente está aquí'], ['naranja', 'Llega en las próximas horas'], ['azul', 'Ya pasó, entra el aire frío']];
+
+  // Rojo = frente encima; naranja = se acerca (o paso probable en las próximas 24 h); azul = ya pasó. Lo demás, sin punto.
+  function pubColorDe(m, e){
+    const est = m.wpc && m.wpc.estado;
+    if(est === 'encima') return 'rojo';
+    if(est === 'ya_paso') return 'azul';
+    if(est === 'se_acerca') return 'naranja';
+    if(e.senales.ok && m.paso && fromLocal(m.paso.estimado).getTime() - Date.now() <= 24 * 3600 * 1000) return 'naranja';
+    return null;
+  }
+
+  function pubFechaTxt(iso){
+    const d = new Date(iso);
+    const p = Object.fromEntries(new Intl.DateTimeFormat('es-MX', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', hourCycle: 'h23', timeZone: TZ_SON }).formatToParts(d).map(x => [x.type, x.value]));
+    return `${p.weekday} ${p.day} de ${p.month}, ${Number(p.hour)}:${p.minute} h`;
+  }
+
+  function pubCargarImagen(url){
+    return new Promise(resolve => {
+      const img = new Image();
+      const t = setTimeout(() => resolve(null), 9000);
+      img.crossOrigin = 'anonymous';
+      img.onload = () => { clearTimeout(t); resolve(img); };
+      img.onerror = () => { clearTimeout(t); resolve(null); };
+      img.src = url;
+    });
+  }
+
+  function pubTextoConHalo(ctx, txt, x, y, lado){
+    ctx.textAlign = lado === 'l' ? 'right' : 'left';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 7; ctx.strokeStyle = 'rgba(255,255,255,.95)';
+    ctx.strokeText(txt, x, y);
+    ctx.fillStyle = '#0F1729';
+    ctx.fillText(txt, x, y);
+  }
+
+  function pubFlecha(ctx, x, y, rumbo, largo){
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rumbo * Math.PI / 180);
+    const cuerpo = largo - 34;
+    ctx.beginPath();
+    ctx.moveTo(-9, 0); ctx.lineTo(-9, -cuerpo); ctx.lineTo(-27, -cuerpo); ctx.lineTo(0, -largo);
+    ctx.lineTo(27, -cuerpo); ctx.lineTo(9, -cuerpo); ctx.lineTo(9, 0); ctx.closePath();
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 9; ctx.strokeStyle = '#fff'; ctx.stroke();
+    ctx.fillStyle = PUB_LINEA; ctx.fill();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = '#0F1729'; ctx.stroke();
+    ctx.restore();
+  }
+
+  async function dibujarPublicar(e, canvas){
+    const W = PUB_W, H = PUB_W, ctx = canvas.getContext('2d');
+    try{ await Promise.all(['700 54px "IBM Plex Sans"', '600 30px "IBM Plex Sans"', '600 26px "IBM Plex Sans"', '500 20px "IBM Plex Sans"'].map(f => document.fonts.load(f))); }catch(_){}
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#0F1729'; ctx.fillRect(0, 0, W, H);
+
+    // --- proyección Web Mercator: la vista cubre Sonora entera de arriba a abajo ---
+    const rad = Math.PI / 180;
+    const mx = lon => (lon + 180) / 360;
+    const my = lat => { const s = Math.sin(lat * rad); return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI); };
+    const V = PUB_VISTA;
+    const S = (PUB_MAP_H * 0.97) / (my(V.latMin) - my(V.latMax));
+    const cx = mx(V.centroLon), cy = (my(V.latMin) + my(V.latMax)) / 2;
+    const px = lon => (mx(lon) - cx) * S + W / 2;
+    const py = lat => (my(lat) - cy) * S + PUB_TOP + PUB_MAP_H / 2;
+
+    // --- mapa base (Esri) ---
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, PUB_TOP, W, PUB_MAP_H); ctx.clip();
+    ctx.fillStyle = '#E9E5D6'; ctx.fillRect(0, PUB_TOP, W, PUB_MAP_H);
+    const z = Math.max(5, Math.min(10, Math.round(Math.log2(S / 256))));
+    const n = 2 ** z, ts = 256 * (S / (256 * n)) ;
+    const x0 = Math.floor((cx - W / 2 / S) * n), x1 = Math.floor((cx + W / 2 / S) * n);
+    const y0 = Math.floor((cy - PUB_MAP_H / 2 / S) * n), y1 = Math.floor((cy + PUB_MAP_H / 2 / S) * n);
+    const pedidos = [];
+    for(let ty = y0; ty <= y1; ty++) for(let tx = x0; tx <= x1; tx++) pedidos.push({ tx, ty, p: pubCargarImagen(PUB_BASE(z, tx, ty)) });
+    const tiles = await Promise.all(pedidos.map(async t => ({ ...t, img: await t.p })));
+    let sinMapa = 0;
+    tiles.forEach(t => {
+      if(!t.img){ sinMapa++; return; }
+      ctx.drawImage(t.img, (t.tx / n - cx) * S + W / 2, (t.ty / n - cy) * S + PUB_TOP + PUB_MAP_H / 2, ts + 1, ts + 1);
+    });
+
+    // --- solo frentes fríos: línea azul gruesa y flecha de avance ---
+    const frias = e.wpc.ok ? e.wpc.elementos.filter(f => f.tipo === 'COLD') : [];
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    const trazo = (f, ancho, color) => { ctx.beginPath(); f.puntos.forEach((p, i) => (i ? ctx.lineTo(px(p[1]), py(p[0])) : ctx.moveTo(px(p[1]), py(p[0])))); ctx.lineWidth = ancho; ctx.strokeStyle = color; ctx.stroke(); };
+    frias.forEach(f => trazo(f, 17, 'rgba(255,255,255,.95)'));
+    frias.forEach(f => trazo(f, 10, PUB_LINEA));
+    let estacionario = false;
+    frias.forEach(f => {
+      const a = f.avance;
+      if(!a) return;
+      if(a.estado === 'casi_estacionario'){ estacionario = true; return; }
+      if(a.lat != null) pubFlecha(ctx, px(a.lon), py(a.lat), a.rumbo, 92);
+    });
+
+    // --- municipios: solo rojo / naranja / azul ---
+    const dentro = (x, y) => x > -20 && x < W + 20 && y > PUB_TOP - 20 && y < PUB_TOP + PUB_MAP_H + 20;
+    const conPunto = new Set();
+    e.municipios.forEach(m => {
+      const c = pubColorDe(m, e);
+      if(!c) return;
+      const x = px(m.lon), y = py(m.lat);
+      if(!dentro(x, y)) return;
+      conPunto.add(m.municipio);
+      ctx.beginPath(); ctx.arc(x, y, 9.5, 0, 2 * Math.PI);
+      ctx.fillStyle = PUB_COLOR[c]; ctx.fill();
+      ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.stroke();
+    });
+
+    // --- etiquetas fijas ---
+    ctx.font = '600 25px "IBM Plex Sans", sans-serif';
+    PUB_CIUDADES.forEach(c => {
+      const m = e.municipios.find(x => x.municipio === c.mun);
+      if(!m) return;
+      const x = px(m.lon), y = py(m.lat);
+      if(!dentro(x, y)) return;
+      const off = conPunto.has(m.municipio) ? 17 : 7;
+      pubTextoConHalo(ctx, c.nombre, c.lado === 'l' ? x - off : x + off, y, c.lado);
+    });
+
+    if(!frias.length){
+      ctx.font = '600 28px "IBM Plex Sans", sans-serif';
+      const txt = e.wpc.ok ? 'Sin frente frío cerca de Sonora en este análisis' : 'Posición del frente no disponible';
+      const w = ctx.measureText(txt).width + 44;
+      ctx.fillStyle = 'rgba(15,23,41,.88)';
+      ctx.beginPath(); ctx.roundRect ? ctx.roundRect((W - w) / 2, PUB_TOP + 24, w, 56, 12) : ctx.rect((W - w) / 2, PUB_TOP + 24, w, 56); ctx.fill();
+      ctx.fillStyle = '#F2EEE3'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(txt, W / 2, PUB_TOP + 52);
+    }
+    ctx.restore();
+
+    // --- encabezado ---
+    ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+    ctx.fillStyle = '#F2EEE3'; ctx.font = '700 58px "IBM Plex Sans", sans-serif';
+    ctx.fillText('Frente frío en Sonora', 54, 82);
+    ctx.fillStyle = '#D7A24C'; ctx.font = '600 33px "IBM Plex Sans", sans-serif';
+    ctx.fillText(e.wpc.valido ? pubFechaTxt(e.wpc.valido) : 'Hora del análisis no disponible', 54, 130);
+    ctx.fillStyle = '#8993A8'; ctx.font = '500 20px "IBM Plex Sans", sans-serif';
+    ctx.fillText('Análisis del WPC/NOAA · hora de Sonora', 54, 160);
+
+    // --- pie: leyenda y marca ---
+    const base = PUB_TOP + PUB_MAP_H;
+    ctx.font = '500 27px "IBM Plex Sans", sans-serif';
+    PUB_LEYENDA.forEach(([c, txt], i) => {
+      const y = base + 36 + i * 38;
+      ctx.beginPath(); ctx.arc(70, y, 11, 0, 2 * Math.PI);
+      ctx.fillStyle = PUB_COLOR[c]; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.stroke();
+      ctx.fillStyle = '#F2EEE3'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText(txt, 94, y);
+    });
+    ctx.textAlign = 'right'; ctx.textBaseline = 'alphabetic';
+    if(estacionario){ ctx.fillStyle = '#FFB84D'; ctx.font = '500 21px "IBM Plex Sans", sans-serif'; ctx.fillText('Frente casi estacionario', W - 40, base + 70); }
+    ctx.fillStyle = '#8993A8'; ctx.font = '500 19px "IBM Plex Sans", sans-serif';
+    ctx.fillText('Fuente: WPC/NOAA · Mapa: Esri', W - 40, H - 52);
+    ctx.fillStyle = '#D7A24C'; ctx.font = '700 29px "IBM Plex Sans", sans-serif';
+    ctx.fillText('Clima Ing. Ismael Trujillo', W - 40, H - 18);
+    return { sinMapa, totalTiles: tiles.length };
+  }
+
+  function prepararPublicar(e){
+    const btn = document.getElementById('btnPublicar');
+    const nota = document.getElementById('pubNote');
+    const ok = e.wpc.ok;
+    btn.disabled = !ok;
+    nota.textContent = ok ? 'Imagen cuadrada de 1080 × 1080 con solo los frentes fríos, lista para redes.' : 'No disponible: no se pudo leer la posición del frente (WPC).';
+  }
+
+  function nombreArchivoPublicar(e){
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: TZ_SON }).formatToParts(new Date(e.wpc.valido || Date.now())).map(x => [x.type, x.value]));
+    return `frente-frio-sonora-${p.year}${p.month}${p.day}-${p.hour}${p.minute}h.png`;
+  }
+
+  function initPublicar(){
+    const modal = document.getElementById('pubModal');
+    const canvas = document.getElementById('pubCanvas');
+    const msg = document.getElementById('pubMsg');
+    const dl = document.getElementById('pubDescargar');
+    const cerrar = () => { modal.hidden = true; };
+    document.getElementById('pubCerrar').addEventListener('click', cerrar);
+    modal.addEventListener('click', ev => { if(ev.target === modal) cerrar(); });
+    document.addEventListener('keydown', ev => { if(ev.key === 'Escape' && !modal.hidden) cerrar(); });
+    document.getElementById('btnPublicar').addEventListener('click', async () => {
+      if(!frenteData || !frenteData.wpc.ok) return;
+      modal.hidden = false; dl.disabled = true; msg.textContent = 'Generando imagen…';
+      try{
+        const r = await dibujarPublicar(frenteData, canvas);
+        msg.textContent = r.sinMapa ? `Imagen lista (no se pudieron cargar ${r.sinMapa} de ${r.totalTiles} piezas del mapa base).` : 'Imagen lista.';
+        dl.disabled = false;
+      }catch(err){
+        msg.textContent = 'No se pudo generar la imagen: ' + err.message;
+      }
+    });
+    dl.addEventListener('click', () => {
+      try{
+        canvas.toBlob(blob => {
+          if(!blob){ msg.textContent = 'No se pudo crear el archivo PNG.'; return; }
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = nombreArchivoPublicar(frenteData);
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        }, 'image/png');
+      }catch(err){
+        msg.textContent = 'El navegador no permitió exportar la imagen: ' + err.message;
+      }
+    });
   }
 
   async function initFrente(){
@@ -560,6 +896,7 @@
   }
 
   init();
+  initPublicar();
   initFrente();
 </script>
 </body>

@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/sonora-frio.js": { "maxDuration": 60 },
+    "api/resumen-frio.js": { "maxDuration": 60 },
+    "api/resumen-frio/*.js": { "maxDuration": 60 }
+  }
+}

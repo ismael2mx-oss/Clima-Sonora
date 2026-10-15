@@ -1,4 +1,5 @@
 import { MUNICIPIOS } from './_municipios.js';
+import { loadOpenMeteo, PLAZO_OPEN_METEO_MS } from './_openmeteo.js';
 
 const TZ = 'America/Hermosillo';
 const SONORA_OFFSET = '-07:00';
@@ -286,21 +287,139 @@ STNRY 3301090 3341070 3361050
 TROF 3151230 2951200 2751180`;
 }
 
+// ---------- Avance del frente (comparación con el análisis anterior del WPC) ----------
+
+// El archivo de productos de texto de IEM (Iowa State) conserva los boletines anteriores; tgftp solo guarda el último.
+const WPC_ARCHIVO_URL = 'https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=CODSUS&limit=8&fmt=text';
+const PREVIO_IDEAL_H = 6;
+const PREVIO_MIN_H = 2;
+const PREVIO_MAX_H = 12;
+const VISTA = { latMin: 26.2, latMax: 32.9, lonMin: -115.8, lonMax: -108.0 }; // lo que muestra el mapa
+const AVANCE_MARGEN_GRADOS = 2;     // se promedia el desplazamiento en la zona de Sonora ampliada
+const AVANCE_LENTO_KMH = 5;
+
+function elegirPrevio(textoArchivo, validoMs) {
+  if (!textoArchivo || validoMs === null) return null;
+  const candidatos = textoArchivo.split(/(?=^ASUS0[12] KWBC)/m)
+    .filter(b => /^ASUS0[12] KWBC/.test(b))
+    .map(b => ({ es02: /^ASUS02/.test(b), p: parseWpc(b) }))
+    .filter(c => c.p.validoMs !== null && c.p.lineas.length)
+    .map(c => ({ ...c, dh: (validoMs - c.p.validoMs) / HORA_MS }))
+    .filter(c => c.dh >= PREVIO_MIN_H && c.dh <= PREVIO_MAX_H);
+  if (!candidatos.length) return null;
+  // El más cercano a 6 h antes; a igualdad, el boletín ASUS02 (posiciones con décimas de grado).
+  candidatos.sort((a, b) => Math.abs(a.dh - PREVIO_IDEAL_H) - Math.abs(b.dh - PREVIO_IDEAL_H) || (b.es02 - a.es02));
+  const c = candidatos[0];
+  return { validoMs: c.p.validoMs, horas: c.dh, lineas: c.p.lineas };
+}
+
+// Muestrea la polilínea cada ~20 km; cada muestra lleva el vector tangente (km este, km norte).
+function muestrearLinea(pts) {
+  const out = [];
+  for (let i = 1; i < pts.length; i++) {
+    const [la0, lo0] = pts[i - 1], [la1, lo1] = pts[i];
+    const n = Math.max(1, Math.ceil(haversine(la0, lo0, la1, lo1) / 20));
+    const kx = 111.32 * Math.cos(((la0 + la1) / 2) * rad), ky = 110.57;
+    const tx = (lo1 - lo0) * kx, ty = (la1 - la0) * ky, len = Math.hypot(tx, ty) || 1;
+    for (let k = 0; k < n; k++) out.push({ lat: la0 + ((la1 - la0) * k) / n, lon: lo0 + ((lo1 - lo0) * k) / n, tx: tx / len, ty: ty / len });
+    if (i === pts.length - 1) out.push({ lat: la1, lon: lo1, tx: tx / len, ty: ty / len });
+  }
+  return out;
+}
+
+// Desplazamiento (km este, km norte) del punto más cercano de las líneas dadas respecto del punto (lat, lon).
+function masCercanoEn(lat, lon, lineas) {
+  let mejor = null;
+  const kx = 111.32 * Math.cos(lat * rad), ky = 110.57;
+  for (const l of lineas) {
+    for (let i = 1; i < l.puntos.length; i++) {
+      const ax = (l.puntos[i - 1][1] - lon) * kx, ay = (l.puntos[i - 1][0] - lat) * ky;
+      const bx = (l.puntos[i][1] - lon) * kx, by = (l.puntos[i][0] - lat) * ky;
+      const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+      const t = len2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
+      const qx = ax + t * dx, qy = ay + t * dy, d = Math.hypot(qx, qy);
+      if (!mejor || d < mejor.d) mejor = { d, qx, qy };
+    }
+  }
+  return mejor;
+}
+
+const rumboDe = (ex, ny) => ((Math.atan2(ex, ny) / rad) + 360) % 360;
+const enZonaAvance = m => m.lat >= VISTA.latMin - AVANCE_MARGEN_GRADOS && m.lat <= VISTA.latMax + AVANCE_MARGEN_GRADOS && m.lon >= VISTA.lonMin - AVANCE_MARGEN_GRADOS && m.lon <= VISTA.lonMax + AVANCE_MARGEN_GRADOS;
+const enVista = m => m.lat >= VISTA.latMin && m.lat <= VISTA.latMax && m.lon >= VISTA.lonMin && m.lon <= VISTA.lonMax;
+
+// Dirección y rapidez de avance de un frente frío. El aire frío queda a la derecha del sentido en que se listan
+// los puntos, así que el frente avanza hacia su izquierda (la normal). Con el análisis anterior se mide cuánto se
+// desplazó la línea en esa dirección; sin él, la dirección es la normal y no hay rapidez.
+function calcularAvance(puntos, previo) {
+  const muestras = muestrearLinea(puntos).filter(enZonaAvance);
+  if (!muestras.length) return null;
+  const normal = m => ({ nx: -m.ty, ny: m.tx });
+  const lineasPrev = previo ? previo.lineas.filter(l => l.tipo === 'COLD') : [];
+
+  let base = 'inferida', desplazKm = null, velKmh = null, estado = 'avanza';
+  let sx = 0, sy = 0;
+  muestras.forEach(m => { const n = normal(m); sx += n.nx; sy += n.ny; });
+  let rumbo = rumboDe(sx, sy);
+
+  if (previo && lineasPrev.length) {
+    const avances = [];
+    muestras.forEach(m => {
+      const q = masCercanoEn(m.lat, m.lon, lineasPrev);
+      if (!q || q.d > 500) return;
+      const n = normal(m);
+      avances.push(-(q.qx * n.nx + q.qy * n.ny)); // km que la línea se movió hacia su lado cálido
+    });
+    if (avances.length >= 3) {
+      base = 'comparacion';
+      desplazKm = mediana(avances);
+      velKmh = desplazKm / previo.horas;
+      if (Math.abs(velKmh) < AVANCE_LENTO_KMH) estado = 'casi_estacionario';
+      else if (velKmh < 0) { estado = 'retrocede'; rumbo = (rumbo + 180) % 360; }
+    }
+  }
+
+  // El ancla de la flecha: la parte media del tramo visible en el mapa.
+  const visibles = muestras.filter(enVista);
+  const ancla = visibles.length ? visibles[Math.floor(visibles.length / 2)] : null;
+  return {
+    base, estado,
+    rumbo: Math.round(rumbo),
+    rumboTxt: compass(rumbo),
+    velKmh: velKmh === null ? null : Math.round(Math.abs(velKmh)),
+    desplazKm: desplazKm === null ? null : Math.round(Math.abs(desplazKm)),
+    previoValido: previo && base === 'comparacion' ? new Date(previo.validoMs).toISOString() : null,
+    previoHoras: previo && base === 'comparacion' ? Math.round(previo.horas) : null,
+    lat: ancla ? Math.round(ancla.lat * 100) / 100 : null,
+    lon: ancla ? Math.round(ancla.lon * 100) / 100 : null
+  };
+}
+
+// Simulación: el análisis "anterior" es el mismo boletín con todo el frente 0.6° más al oeste (≈ 10 km/h en 6 h).
+function previoSimulado(parsed) {
+  return { validoMs: (parsed.validoMs ?? Date.now()) - PREVIO_IDEAL_H * HORA_MS, horas: PREVIO_IDEAL_H, lineas: parsed.lineas.map(l => ({ tipo: l.tipo, puntos: l.puntos.map(([la, lo]) => [la, lo - 0.6]) })) };
+}
+
 export async function loadWpcFrentes({ simular = false } = {}) {
-  let fuente, parsed;
+  let fuente, parsed, previo = null;
   if (simular) {
     fuente = 'simulación';
     parsed = parseWpc(boletinSimulado());
+    previo = previoSimulado(parsed);
   } else {
-    const r = await cached('wpc', loadWpcText);
+    const [r, archivo] = await Promise.all([
+      cached('wpc', loadWpcText),
+      cached('wpc-archivo', () => fetchRetry(WPC_ARCHIVO_URL, { headers: NOAA_HEADERS, timeoutMs: 5000, retries: 1 })).catch(() => null)
+    ]);
     fuente = r.url;
     parsed = r.parsed;
+    try { previo = elegirPrevio(archivo, parsed.validoMs); } catch { previo = null; }
   }
   const analizadas = parsed.lineas.map(l => ({ ...l, cerca: distLineaCajaKm(l.puntos) }));
   const elementos = analizadas
     .filter(l => l.cerca.d <= ELEMENTOS_KM)
     .sort((a, b) => a.cerca.d - b.cerca.d)
-    .map(l => ({ tipo: l.tipo, tipoEs: TIPOS_WPC[l.tipo], puntos: l.puntos, distCajaKm: Math.round(l.cerca.d) }));
+    .map(l => ({ tipo: l.tipo, tipoEs: TIPOS_WPC[l.tipo], puntos: l.puntos, distCajaKm: Math.round(l.cerca.d), avance: l.tipo === 'COLD' ? calcularAvance(l.puntos, previo) : null }));
   // La clasificación de municipios (encima / se acerca / ya pasó) usa solo frentes fríos a 300 km o menos.
   const frentes = elementos.filter(l => l.tipo === 'COLD' && l.distCajaKm <= MARGEN_KM).map(({ puntos, distCajaKm }) => ({ puntos, distCajaKm }));
   // Para comparar con el SMN cuentan los frentes de cualquier tipo (no las vaguadas).
@@ -310,6 +429,7 @@ export async function loadWpcFrentes({ simular = false } = {}) {
     fuente,
     valido: parsed.validoMs !== null ? new Date(parsed.validoMs).toISOString() : null,
     emitido: parsed.emitidoMs !== null ? new Date(parsed.emitidoMs).toISOString() : null,
+    previo: previo ? { valido: new Date(previo.validoMs).toISOString(), horas: Math.round(previo.horas) } : null,
     totalElementos: analizadas.length,
     elementos,
     frentes,
@@ -345,16 +465,12 @@ function clasificarContraFrentes(lat, lon, frentes) {
 
 const enArcoNorte = d => Number.isFinite(d) && (d >= 292.5 || d < 67.5); // N, NO y NE
 
+// Las series horarias salen de la consulta única a Open-Meteo (ver _openmeteo.js): empiezan ayer a las 00:00.
+const HORIZONTE_H = 72;
+
 async function loadSenales() {
-  return cached('senales', async () => {
-    const lats = MUNICIPIOS.map(m => m.lat).join(',');
-    const lons = MUNICIPIOS.map(m => m.lon).join(',');
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&hourly=temperature_2m,dew_point_2m,pressure_msl,wind_direction_10m&past_hours=24&forecast_hours=72&timezone=${TZ}`;
-    const data = await fetchRetry(url, { as: 'json' });
-    const list = Array.isArray(data) ? data : [data];
-    if (list.length !== MUNICIPIOS.length) throw new Error('respuesta incompleta de Open-Meteo');
-    return list.map(l => l.hourly || {});
-  });
+  const om = await loadOpenMeteo();
+  return { series: om.list.map(l => l.hourly || {}), datosDe: om.datosDe, desdeCache: om.desdeCache, motivo: om.motivo };
 }
 
 function analizarPaso(h, ahoraStr) {
@@ -403,7 +519,8 @@ function analizarPaso(h, ahoraStr) {
     pasos.push(armar(mejor.t, mejor.a));
     grupo = [];
   };
-  for (let t = i0; t < n; t++) {
+  const fin = Math.min(n, i0 + HORIZONTE_H);
+  for (let t = i0; t < fin; t++) {
     const a = activas(t);
     if (a.length >= 3 && a.some(x => x.tipo === 'presion')) {
       if (grupo.length && t - grupo[grupo.length - 1].t > 6) cerrar();
@@ -416,7 +533,7 @@ function analizarPaso(h, ahoraStr) {
   let aire = null;
   if (!pasos.length) {
     let mejor = null;
-    for (let t = i0; t < n; t++) {
+    for (let t = i0; t < fin; t++) {
       const a = activas(t);
       if (a.length >= 2 && (!mejor || a.length > mejor.a.length)) mejor = { t, a };
     }
@@ -480,11 +597,12 @@ export async function loadFrenteEstado({ simular = false } = {}) {
   const [smnR, wpcR, senR] = await Promise.allSettled([
     withDeadline(loadSmnFrente(), DEADLINE_MS),
     withDeadline(loadWpcFrentes({ simular }), DEADLINE_MS),
-    withDeadline(loadSenales(), DEADLINE_MS)
+    withDeadline(loadSenales(), PLAZO_OPEN_METEO_MS)
   ]);
 
   const wpc = wpcR.status === 'fulfilled' ? wpcR.value : null;
-  const senales = senR.status === 'fulfilled' ? senR.value : null;
+  const senData = senR.status === 'fulfilled' ? senR.value : null;
+  const senales = senData ? senData.series : null;
 
   // Cada municipio queda en una sola categoría, así que siempre suman 72. Orden de prioridad: el análisis
   // del WPC ("encima", "ya pasó") prevalece sobre las señales; luego paso de frente, "se acerca",
@@ -498,6 +616,7 @@ export async function loadFrenteEstado({ simular = false } = {}) {
     else if (an.pasos.length) categoria = 'paso';
     else if (w?.estado === 'se_acerca') categoria = 'se_acerca';
     else if (an.aire) categoria = 'aire';
+    else if (!senales || !wpc) categoria = 'sin_datos'; // falta una fuente: no se puede afirmar que no hay influencia
     else categoria = 'sin_senal';
     return { municipio: m.municipio, cabecera: m.cabecera, lat: m.lat, lon: m.lon, wpc: w, categoria, pasos: an.pasos, aire: an.aire };
   });
@@ -518,7 +637,8 @@ export async function loadFrenteEstado({ simular = false } = {}) {
     yaPaso: nombres('ya_paso'),
     paso: nombres('paso'),
     aire: nombres('aire'),
-    sinSenal: nombres('sin_senal')
+    sinSenal: nombres('sin_senal'),
+    sinDatos: nombres('sin_datos')
   };
 
   const notas = [];
@@ -533,12 +653,12 @@ export async function loadFrenteEstado({ simular = false } = {}) {
     fechas: { hoy, manana, pasadoManana },
     smn: smnR.status === 'fulfilled' ? { ok: true, ...smnR.value } : { ok: false, error: error(smnR) },
     wpc: wpc ? { ok: true, ...wpc } : { ok: false, error: error(wpcR) },
-    senales: senales ? { ok: true } : { ok: false, error: error(senR) },
+    senales: senData ? { ok: true, datosDe: senData.datosDe, desdeCache: senData.desdeCache, motivo: senData.motivo } : { ok: false, error: error(senR) },
     municipios,
     eventos,
     grupos,
     notas,
-    hayError: smnR.status === 'rejected' || wpcR.status === 'rejected' || senR.status === 'rejected' || (smnR.status === 'fulfilled' && smnR.value.parcial)
+    hayError: smnR.status === 'rejected' || wpcR.status === 'rejected' || senR.status === 'rejected' || (smnR.status === 'fulfilled' && smnR.value.parcial) || Boolean(senData && senData.desdeCache)
   };
 }
 
