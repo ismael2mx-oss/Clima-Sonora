@@ -328,23 +328,18 @@ export async function buildResumenFrio({ simular = false } = {}) {
 async function respondResumenPronostico(req, res) {
   try {
     if (String(req.query?.debug || '') === 'om') { // TEMPORAL: diagnóstico de Open-Meteo desde Vercel
+      const { MUNICIPIOS } = await import('./_municipios.js');
+      const lat = MUNICIPIOS.map(m => m.lat).join(','), lon = MUNICIPIOS.map(m => m.lon).join(',');
+      const base = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon + '&models=icon_seamless,gfs_seamless,ecmwf_ifs025&daily=temperature_2m_max,wind_gusts_10m_max,precipitation_sum,precipitation_probability_max&hourly=precipitation,weather_code,cape&timezone=America/Hermosillo&forecast_days=2';
       const out = {};
-      const base = 'https://api.open-meteo.com/v1/forecast?latitude=30.63,31.33,29.07&longitude=-109.97,-109.95,-110.96&timezone=America/Hermosillo&forecast_days=1';
-      const variantes = {
-        'multi daily+hourly (como en producción)': '&models=icon_seamless,gfs_seamless,ecmwf_ifs025&daily=precipitation_probability_max&hourly=precipitation_probability',
-        'icon_seamless solo': '&models=icon_seamless&daily=precipitation_probability_max&hourly=precipitation_probability',
-        'icon_global solo': '&models=icon_global&daily=precipitation_probability_max&hourly=precipitation_probability',
-        'sin models (best match)': '&daily=precipitation_probability_max&hourly=precipitation_probability',
-        'icon_seamless horario prob + precip': '&models=icon_seamless&hourly=precipitation_probability,precipitation'
-      };
+      const variantes = { 'exacta': '', 'con cb': '&cb=' + Date.now(), 'sin hourly': null, 'daily solo prob': 'DAILYPROB' };
       for (const [k, q] of Object.entries(variantes)) {
+        let url = base + (q && q !== 'DAILYPROB' ? q : '');
+        if (q === null) url = base.replace('&hourly=precipitation,weather_code,cape', '');
+        if (q === 'DAILYPROB') url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon + '&models=icon_seamless,gfs_seamless,ecmwf_ifs025&daily=precipitation_probability_max&timezone=America/Hermosillo&forecast_days=2';
         try {
-          const r = await fetch(base + q);
-          const j = await r.json();
-          const arr = Array.isArray(j) ? j : [j];
-          const dk = Object.keys(arr[0].daily || {}).filter(x => x.startsWith('precipitation_probability_max'));
-          const hk = Object.keys(arr[0].hourly || {}).filter(x => x.startsWith('precipitation_probability'));
-          out[k] = { status: r.status, daily: dk.map(x => x + '=' + JSON.stringify(arr.map(l => l.daily[x]))), hourlyNoNulos: hk.map(x => x + ':' + arr[0].hourly[x].filter(Number.isFinite).length + '/' + arr[0].hourly[x].length) };
+          const r = await fetch(url); const j = await r.json(); const arr = Array.isArray(j) ? j : [j];
+          out[k] = { status: r.status, iconProbFinitos: arr.filter(l => l.daily && Number.isFinite(l.daily.precipitation_probability_max_icon_seamless && l.daily.precipitation_probability_max_icon_seamless[0])).length, gfs: arr.filter(l => l.daily && Number.isFinite(l.daily.precipitation_probability_max_gfs_seamless && l.daily.precipitation_probability_max_gfs_seamless[0])).length, generation: arr[0].generationtime_ms };
         } catch (e) { out[k] = { error: e.message }; }
       }
       res.setHeader('Cache-Control', 'no-store');
