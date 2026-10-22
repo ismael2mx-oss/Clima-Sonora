@@ -1,6 +1,6 @@
 import { MUNICIPIOS } from './_municipios.js';
 
-// Regiones del resumen del pronóstico. PROPUESTA pendiente de revisión: edita las listas y listo, el resto se ajusta solo.
+// Regiones del resumen del pronóstico (la sierra baja del centro-oriente se separó de la sierra el 22 de oct de 2026). Edita las listas y el resto se ajusta solo.
 // Un municipio puede estar en más de una región (por ejemplo costa + valle); los nombres son los de _municipios.js.
 export const REGIONES = {
   'Valles del centro': [
@@ -23,9 +23,13 @@ export const REGIONES = {
   'Noreste': [
     'Fronteras', 'Nacozari de García', 'Bacoachi', 'Arizpe', 'Villa Hidalgo', 'Bavispe', 'Bacerac', 'Huachinera', 'Cumpas', 'Moctezuma'
   ],
+  // Municipios de la sierra propiamente dicha (mayor elevación).
   'Sierra del oriente': [
-    'Yécora', 'Sahuaripa', 'Nácori Chico', 'Bacadéhuachi', 'Arivechi', 'Divisaderos', 'Granados', 'Huásabas',
-    'Tepache', 'San Pedro de la Cueva', 'Bacanora', 'Soyopa', 'San Javier', 'Ónavas', 'Suaqui Grande', 'Moctezuma'
+    'Yécora', 'Nácori Chico', 'Bacadéhuachi', 'Divisaderos', 'San Javier', 'Tepache', 'Moctezuma'
+  ],
+  // Municipios de la sierra baja y valles del centro-oriente (menos de ~550 m, con máximas de 36-38 °C).
+  'Sierra baja del centro-oriente': [
+    'Soyopa', 'Ónavas', 'Suaqui Grande', 'San Pedro de la Cueva', 'Bacanora', 'Sahuaripa', 'Arivechi', 'Huásabas', 'Granados'
   ]
 };
 

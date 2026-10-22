@@ -301,7 +301,7 @@ export async function buildResumenPronostico() {
     }
   }
   out.push('La comparación de modelos usa el máximo del día (00-24 h, hora de Sonora) en cualquier municipio de la región. La probabilidad de lluvia solo existe para el best match (Open-Meteo no la da por modelo).');
-  out.push('Las regiones salen de api/_regiones.js (asignación propuesta; un municipio puede estar en dos regiones). Los umbrales de modelos están en api/_pronostico-data.js.');
+  out.push('Las regiones salen de api/_regiones.js (un municipio puede estar en dos regiones). Los umbrales de modelos están en api/_pronostico-data.js.');
   out.push('No se redacta el pronóstico: son solo datos ordenados.');
   return { text: out.join('\n'), ok: meta.ok && Boolean(datos) && Boolean(modelos) && rLluvia.status === 'fulfilled' };
 }
