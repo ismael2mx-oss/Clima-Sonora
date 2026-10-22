@@ -161,7 +161,7 @@ function bloqueRegion(nombre, r, modelos, hayLluvia) {
     const mm = m => (m.lluvia ? `${m.nombre} ${m.lluvia.mm.toFixed(1)} mm${m.lluvia.mm > 0 ? ` (${m.lluvia.municipio})` : ''}` : `${m.nombre} sin dato`);
     const l = modelos.lluvia;
     const bmProb = r.lluvia && r.lluvia.prob ? `best match ${r.lluvia.prob.max}% (${r.lluvia.prob.maxMun})` : 'best match sin dato';
-    L.push(`Probabilidad de lluvia por modelo (máxima del día entre municipios de la región): ${modelos.porModelo.map(m => (m.prob ? `${m.nombre} ${m.prob.v}% (${m.prob.municipio})` : `${m.nombre} sin dato`)).join(' · ')} · ${bmProb}`);
+    L.push(`Probabilidad de lluvia por modelo (máxima del día entre municipios de la región): ${modelos.porModelo.map(m => (m.prob ? `${m.nombre} ${m.prob.v}% (${m.prob.municipio})` : `${m.nombre} sin dato (Open-Meteo no lo entregó en esta consulta)`)).join(' · ')} · ${bmProb}`);
     L.push(`Lluvia por modelo (acumulado de 00:00 a 24:00 h; máximo entre municipios): ${modelos.porModelo.map(mm).join(' · ')} → ${l.n} de ${l.total} modelos con ≥${UMBRALES.lluviaMm} mm${l.modelos.length ? ` (${l.modelos.join(', ')})` : ''} → ${l.veredicto}`);
     modelos.porModelo.filter(m => m.lluvia).forEach(m => L.push(`  - ${m.nombre}: ${m.lluvia.nMunicipios} de ${r.n} municipios con ≥${UMBRALES.lluviaMm} mm; franja con lluvia (≥0.1 mm/h): ${m.lluvia.franja || 'ninguna'}`));
     const t = modelos.tormenta;

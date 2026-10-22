@@ -327,26 +327,6 @@ export async function buildResumenFrio({ simular = false } = {}) {
 // aquí mediante una reescritura de vercel.json (?tipo=pronostico) en vez de tener su propia función.
 async function respondResumenPronostico(req, res) {
   try {
-    if (String(req.query?.debug || '') === 'om') { // TEMPORAL: diagnóstico de Open-Meteo desde Vercel
-      const { MUNICIPIOS } = await import('./_municipios.js');
-      const out = {};
-      for (const n of [3, 10, 20, 36, 50, 72]) {
-        const ms = MUNICIPIOS.slice(0, n);
-        const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + ms.map(m => m.lat).join(',') + '&longitude=' + ms.map(m => m.lon).join(',') + '&models=icon_seamless,gfs_seamless,ecmwf_ifs025&daily=precipitation_probability_max&timezone=America/Hermosillo&forecast_days=2';
-        try {
-          const r = await fetch(url); const j = await r.json(); const arr = Array.isArray(j) ? j : [j];
-          out['n=' + n] = { icon: arr.filter(l => l.daily && Number.isFinite(l.daily.precipitation_probability_max_icon_seamless && l.daily.precipitation_probability_max_icon_seamless[0])).length, ecmwf: arr.filter(l => l.daily && Number.isFinite(l.daily.precipitation_probability_max_ecmwf_ifs025 && l.daily.precipitation_probability_max_ecmwf_ifs025[0])).length, total: arr.length };
-        } catch (e) { out['n=' + n] = { error: e.message }; }
-      }
-      // ICON solo (sin otros modelos) con las 72
-      const ms = MUNICIPIOS;
-      const u2 = 'https://api.open-meteo.com/v1/forecast?latitude=' + ms.map(m => m.lat).join(',') + '&longitude=' + ms.map(m => m.lon).join(',') + '&models=icon_seamless&daily=precipitation_probability_max&timezone=America/Hermosillo&forecast_days=2';
-      const j2 = await (await fetch(u2)).json();
-      out['icon solo 72'] = { finitos: (Array.isArray(j2) ? j2 : [j2]).filter(l => l.daily && Number.isFinite(l.daily.precipitation_probability_max && l.daily.precipitation_probability_max[0])).length };
-      res.setHeader('Cache-Control', 'no-store');
-      res.status(200).json(out);
-      return;
-    }
     const { buildResumenPronostico } = await import('./_resumen-pronostico.js');
     const { text, ok } = await buildResumenPronostico();
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
