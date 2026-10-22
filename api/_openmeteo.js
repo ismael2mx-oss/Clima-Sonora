@@ -38,6 +38,8 @@ export const MODELOS = [
   { id: 'ecmwf_ifs025', nombre: 'ECMWF', meta: 'ecmwf_ifs025' }
 ];
 const DIARIAS_MODELOS = ['temperature_2m_max', 'wind_gusts_10m_max', 'precipitation_sum'];
+// Por hora y por modelo: lluvia, código de tiempo (95-99 = tormenta eléctrica) y CAPE (energía para tormentas, J/kg).
+const HORARIAS_MODELOS = ['precipitation', 'weather_code', 'cape'];
 
 const tieneArreglos = (l, campo) => Array.isArray(l?.[campo]?.time);
 
@@ -126,9 +128,10 @@ export const loadOpenMeteoPronostico = crearCargador(
 );
 
 // Un solo pedido con los tres modelos: cada variable llega con el sufijo del modelo (temperature_2m_max_icon_seamless).
+// Hoy es el índice 0 de lo diario y las horas 0-23 de lo horario (día completo, hora de Sonora).
 export const loadOpenMeteoModelos = crearCargador(
-  () => `${BASE}?${coords()}&models=${MODELOS.map(m => m.id).join(',')}&daily=${DIARIAS_MODELOS.join(',')}&timezone=${TZ}&forecast_days=2`,
-  l => tieneArreglos(l, 'daily')
+  () => `${BASE}?${coords()}&models=${MODELOS.map(m => m.id).join(',')}&daily=${DIARIAS_MODELOS.join(',')}&hourly=${HORARIAS_MODELOS.join(',')}&timezone=${TZ}&forecast_days=2`,
+  l => tieneArreglos(l, 'daily') && tieneArreglos(l, 'hourly')
 );
 
 // Corrida más reciente de cada modelo (hora de inicialización, UTC). Si no se puede leer, devuelve null para ese modelo.

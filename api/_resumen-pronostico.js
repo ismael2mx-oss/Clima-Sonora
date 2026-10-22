@@ -3,7 +3,7 @@ import { REGIONES, validarRegiones } from './_regiones.js';
 import { loadOpenMeteoPronostico, loadOpenMeteoModelos, loadCorridasModelos, MODELOS } from './_openmeteo.js';
 import { loadLluviaDiaria } from './_lluvia.js';
 import { loadSmnTextos, loadFrenteEstado } from './_frente-data.js';
-import { calcularRegiones, compararModelos, analizarSmn, frasesDescenso, tendenciaTxt, UMBRALES } from './_pronostico-data.js';
+import { calcularRegiones, compararModelos, analizarSmn, frasesDescenso, tendenciaTxt, vigenciaSmn, fechaLocal, UMBRALES } from './_pronostico-data.js';
 import { loadPacificStorms, loadOutlookData } from './ciclones.js';
 import { PORTS, nearest, stormSection, bboxOf, esAreaGlobal, fmtLat, fmtLon, fmtKm } from './resumen-ciclones.js';
 import { loadAzAlerts, alertasSection, avanceTexto, horaSonora, failure } from './resumen-frio.js';
@@ -51,8 +51,8 @@ function metadatos({ ahora, corridas, rPron, rLluvia, rMod, rSmn, rFrente, rStor
   if (rSmn.status === 'rejected') filas.push({ ok: false, txt: `  - SMN: FALLÓ — ${msg(rSmn)}` });
   else {
     const caidas = rSmn.value.filter(t => !t.ok);
-    const buenas = rSmn.value.filter(t => t.ok).map(t => `${t.nombre}: aviso No. ${t.noAviso ?? 's/n'}${t.emitido ? ` emitido ${fmtCorto.format(new Date(t.emitido))} h` : ''}`);
-    filas.push({ ok: !caidas.length, txt: `  - SMN: ${buenas.length ? 'OK — ' + buenas.join('; ') : 'sin páginas'}${caidas.length ? ` | FALLÓ ${caidas.map(t => `${t.nombre} (${t.error})`).join('; ')}` : ''}` });
+    const buenas = rSmn.value.filter(t => t.ok).map(t => `${t.nombre}: aviso No. ${t.noAviso ?? 's/n'}${t.emitido ? ` emitido ${fmtCorto.format(new Date(t.emitido))} h` : ''} [${vigenciaSmn(t.emitido, ahora).texto}]`);
+    filas.push({ ok: !caidas.length, txt: `  - SMN: ${buenas.length ? 'OK —\n      ' + buenas.join('\n      ') : 'sin páginas'}${caidas.length ? ` | FALLÓ ${caidas.map(t => `${t.nombre} (${t.error})`).join('; ')}` : ''}` });
   }
   if (rFrente.status === 'rejected') filas.push({ ok: false, txt: `  - WPC/frente frío: FALLÓ — ${msg(rFrente)}` });
   else {
@@ -80,7 +80,10 @@ function seccionSmn(smnR) {
   const a = analizarSmn(smnR.value);
   if (!a.general && !a.extendido) return failure('el texto del SMN', new Error(a.errores.join('; ') || 'sin páginas'));
   const L = [];
-  if (a.general) L.push(`SMN, aviso general No. ${a.general.noAviso ?? 's/n'}${a.general.emitido ? ` (emitido ${fmtCorto.format(new Date(a.general.emitido))} h de Sonora)` : ''}.`);
+  const ahoraMs = Date.now();
+  const etiqueta = p => (p ? `aviso No. ${p.noAviso ?? 's/n'}, emitido ${p.emitido ? `${fmtCorto.format(new Date(p.emitido))} h de Sonora` : 'sin fecha'} — ${vigenciaSmn(p.emitido, ahoraMs).texto}` : null);
+  if (a.general) L.push(`SMN, Pronóstico Meteorológico General: ${etiqueta(a.general)}.`);
+  if (a.extendido) L.push(`SMN, Pronóstico Extendido a 96 h: ${etiqueta(a.extendido)}.`);
   if (a.errores.length) L.push(`[No disponible: ${a.errores.join('; ')}]`);
   if (!a.general) L.push('[No disponible: el Pronóstico Meteorológico General (aviso diario) del SMN; solo se usó el pronóstico extendido, así que la lista de sistemas y avisos puede estar incompleta.]');
   L.push('Sistemas que menciona el SMN y que pueden afectar a Sonora (texto textual de cada frase):');
@@ -91,7 +94,7 @@ function seccionSmn(smnR) {
     if (a.pronosticoSonora.length) a.pronosticoSonora.forEach(c => L.push(`  - ${c}`)); else L.push('  Ninguno nombra a Sonora.');
   }
   if (a.pacificoNorte) { L.push('Pronóstico regional del SMN, "Pacífico Norte" (incluye Sonora):'); L.push(`  "${a.pacificoNorte}"`); }
-  if (a.extendidoSonora.length) { L.push('Pronóstico extendido a 96 h del SMN, frases que mencionan Sonora:'); a.extendidoSonora.forEach(c => L.push(`  - ${c}`)); }
+  if (a.extendidoSonora.length) { L.push(`Pronóstico extendido a 96 h del SMN (${vigenciaSmn(a.extendido.emitido, ahoraMs).esDeHoy === false ? 'OJO: no es de hoy; ' : ''}emitido ${a.extendido.emitido ? fmtCorto.format(new Date(a.extendido.emitido)) + ' h' : 'sin fecha'}), frases que mencionan Sonora:`); a.extendidoSonora.forEach(c => L.push(`  - ${c}`)); }
   return L.join('\n');
 }
 
@@ -140,29 +143,41 @@ function bloqueRegion(nombre, r, modelos, hayLluvia) {
   const L = [];
   const lista = r.municipios.length > 12 ? `${r.municipios.slice(0, 12).join(', ')}, … (${r.n})` : r.municipios.join(', ');
   L.push(`--- ${nombre} (${r.n} municipios: ${lista}) ---`);
-  const rango = (x, u, d = 1) => (x ? `${x.min.toFixed(d)}${u} (${x.minMun}) a ${x.max.toFixed(d)}${u} (${x.maxMun})` : 'sin dato');
+  // Los extremos llevan el municipio y su elevación para detectar a simple vista municipios mal asignados.
+  const rango = (x, u, d = 1) => (x ? `${x.min.toFixed(d)}${u} (${x.minMun}${x.minElev !== null ? `, ${x.minElev} m` : ''}) a ${x.max.toFixed(d)}${u} (${x.maxMun}${x.maxElev !== null ? `, ${x.maxElev} m` : ''})` : 'sin dato');
   L.push(`Temperatura máxima de hoy: ${rango(r.tmax, ' °C')}`);
   L.push(`Mínima de la noche/madrugada siguiente (18:00 de hoy a 09:00 de mañana): ${rango(r.tmin, ' °C')}`);
 
-  if (!hayLluvia) L.push('Lluvia: [No disponible: falló la lluvia diaria de Open-Meteo]');
+  // Lluvia "best match": es la cifra de la página de lluvia y de /api/resumen-ciclones. En esta zona suele seguir al GFS.
+  if (!hayLluvia) L.push('Lluvia (best match): [No disponible: falló la lluvia diaria de Open-Meteo]');
   else if (r.lluvia) {
     const ll = r.lluvia;
-    L.push(`Lluvia (día completo): probabilidad máxima ${ll.prob ? `${ll.prob.max}% (${ll.prob.maxMun})` : 'sin dato'}; acumulado máximo ${ll.mm ? `${ll.mm.max} mm (${ll.mm.maxMun})` : 'sin dato'}; municipios con ≥${UMBRALES.lluviaMm} mm: ${ll.conLluvia.length} de ${r.n}${ll.conLluvia.length ? ` (${ll.conLluvia.slice(0, 8).join(', ')}${ll.conLluvia.length > 8 ? ', …' : ''})` : ''}`);
-    L.push(`  Franja con lluvia (≥0.1 mm por hora en algún municipio): ${ll.franja || 'ninguna'}${ll.picoProb ? `; pico de probabilidad ${ll.picoProb.v}% a las ${hh(ll.picoProb.hora)} (${ll.picoProb.municipio})` : ''}`);
-    const t = ll.tormenta;
-    L.push(`  Tormenta eléctrica (weather_code 95-99): ${t.municipios.length ? `${t.municipios.length} municipio(s) (${t.municipios.slice(0, 8).join(', ')}${t.municipios.length > 8 ? ', …' : ''}), ${t.franja}` : 'no pronosticada'}`);
+    L.push(`Lluvia, best match (misma cifra que la página de lluvia y /api/resumen-ciclones; día completo): probabilidad máxima ${ll.prob ? `${ll.prob.max}% (${ll.prob.maxMun})` : 'sin dato'}; acumulado máximo ${ll.mm ? `${ll.mm.max.toFixed(1)} mm (${ll.mm.maxMun})` : 'sin dato'}`);
+  }
+
+  if (!modelos) {
+    L.push('Lluvia y tormentas por modelo: [No disponible: falló la consulta de ICON/GFS/ECMWF]');
+  } else {
+    const mm = m => (m.lluvia ? `${m.nombre} ${m.lluvia.mm.toFixed(1)} mm${m.lluvia.mm > 0 ? ` (${m.lluvia.municipio})` : ''}` : `${m.nombre} sin dato`);
+    const l = modelos.lluvia;
+    L.push(`Lluvia por modelo (acumulado de 00:00 a 24:00 h; máximo entre municipios): ${modelos.porModelo.map(mm).join(' · ')} → ${l.n} de ${l.total} modelos con ≥${UMBRALES.lluviaMm} mm${l.modelos.length ? ` (${l.modelos.join(', ')})` : ''} → ${l.veredicto}`);
+    modelos.porModelo.filter(m => m.lluvia).forEach(m => L.push(`  - ${m.nombre}: ${m.lluvia.nMunicipios} de ${r.n} municipios con ≥${UMBRALES.lluviaMm} mm; franja con lluvia (≥0.1 mm/h): ${m.lluvia.franja || 'ninguna'}`));
+    const t = modelos.tormenta;
+    L.push(`Tormenta eléctrica por modelo (weather_code 95-99 en alguna hora del día): ${modelos.porModelo.map(m => (m.tormenta ? `${m.nombre} ${m.tormenta.municipios.length ? 'SÍ' : 'no'}` : `${m.nombre} sin dato`)).join(' · ')} → ${t.n} de ${t.total} modelos → ${t.veredicto}`);
+    modelos.porModelo.filter(m => m.tormenta && m.tormenta.municipios.length).forEach(m => L.push(`  - ${m.nombre}: ${m.tormenta.municipios.length} municipio(s) (${m.tormenta.municipios.slice(0, 8).join(', ')}${m.tormenta.municipios.length > 8 ? ', …' : ''}); franja: ${m.tormenta.franja}`));
+    L.push(`  CAPE máximo, indicador de apoyo (≥1,000 J/kg atmósfera inestable; ≥2,500 muy inestable): ${modelos.porModelo.map(m => (m.cape ? `${m.nombre} ${m.cape.v.toLocaleString('en-US')} J/kg (${m.cape.municipio}, ${hh(m.cape.hora)})` : `${m.nombre} sin dato`)).join(' · ')}`);
   }
 
   const v = r.viento;
-  L.push(`Viento sostenido máximo: ${v.sostenido ? `${v.sostenido.v} km/h del ${v.sostenido.dir ?? 'n/d'} a las ${hh(v.sostenido.hora)} (${v.sostenido.municipio})` : 'sin dato'}`);
-  L.push(`Rachas máximas: ${v.racha ? `${v.racha.v} km/h del ${v.racha.dir ?? 'n/d'} a las ${hh(v.racha.hora)} (${v.racha.municipio})` : 'sin dato'}; municipios con rachas ≥${UMBRALES.rachaKmh} km/h: ${v.conRacha50} de ${r.n}`);
+  L.push(`Viento sostenido máximo (best match): ${v.sostenido ? `${v.sostenido.v} km/h del ${v.sostenido.dir ?? 'n/d'} a las ${hh(v.sostenido.hora)} (${v.sostenido.municipio})` : 'sin dato'}`);
+  L.push(`Rachas máximas (best match): ${v.racha ? `${v.racha.v} km/h del ${v.racha.dir ?? 'n/d'} a las ${hh(v.racha.hora)} (${v.racha.municipio})` : 'sin dato'}; municipios con rachas ≥${UMBRALES.rachaKmh} km/h: ${v.conRacha50} de ${r.n}`);
   L.push(`Humedad relativa mínima de la tarde (12:00-19:00 h): ${rango(r.humedad, ' %', 0)}`);
   L.push(`Nubosidad de la tarde (12:00-19:00 h): ${r.nubes ? `${r.nubes.clase} (cobertura media ${r.nubes.media}%; entre ${Math.round(r.nubes.min)}% y ${Math.round(r.nubes.max)}% según el municipio)` : 'sin dato'}`);
 
   if (modelos) {
-    L.push('Confianza de modelos (cuántos de ICON, GFS y ECMWF tienen al menos un municipio de la región sobre el umbral; solo se menciona un impacto si coinciden 2 o más):');
-    modelos.forEach(m => L.push(`  - ${m.nombre}: ${m.total ? `${m.n} de ${m.total} modelos${m.modelos.length ? ` (${m.modelos.join(', ')})` : ''}` : 'sin datos'} → ${m.veredicto}`));
-  } else L.push('Confianza de modelos: [No disponible: falló la consulta de ICON/GFS/ECMWF]');
+    L.push(`Confianza de modelos en rachas y calor (cuántos de ICON, GFS y ECMWF tienen al menos un municipio de la región sobre el umbral; solo se menciona un impacto si coinciden 2 o más):`);
+    [modelos.rachas, modelos.calor].forEach(m => L.push(`  - ${m.nombre}: ${m.total ? `${m.n} de ${m.total} modelos${m.modelos.length ? ` (${m.modelos.join(', ')})` : ''}` : 'sin datos'} → ${m.veredicto}`));
+  }
   return L.join('\n');
 }
 
@@ -200,12 +215,19 @@ function seccionCiclones(stormsR, outlookR) {
   return L.join('\n');
 }
 
+// Ninguna fuente externa puede colgar el resumen: pasados 30 s se da por caída y se avisa en el texto.
+function conPlazo(promesa, ms = 30000) {
+  let t;
+  const limite = new Promise((_, rechazo) => { t = setTimeout(() => rechazo(new Error('tiempo de espera agotado')), ms); });
+  return Promise.race([promesa, limite]).finally(() => clearTimeout(t));
+}
+
 // ---------- armado ----------
 export async function buildResumenPronostico() {
   const ahora = Date.now();
   const [rPron, rLluvia, rMod, rCorridas, rSmn, rFrente, rStorms, rOutlook, rAz] = await Promise.allSettled([
     loadOpenMeteoPronostico(), loadLluviaDiaria(), loadOpenMeteoModelos(), loadCorridasModelos(),
-    loadSmnTextos(), loadFrenteEstado(), loadPacificStorms(), loadOutlookData(), loadAzAlerts()
+    conPlazo(loadSmnTextos()), conPlazo(loadFrenteEstado()), conPlazo(loadPacificStorms()), conPlazo(loadOutlookData()), conPlazo(loadAzAlerts())
   ]);
   const corridas = rCorridas.status === 'fulfilled' ? rCorridas.value : MODELOS.map(m => ({ ...m, corrida: null, error: msg(rCorridas) }));
   const regionesMal = validarRegiones();
@@ -215,10 +237,10 @@ export async function buildResumenPronostico() {
   // Cálculos por región (solo si hay series horarias; si no, se dice claramente).
   let datos = null, errorDatos = null;
   if (rPron.status === 'fulfilled') {
-    try { datos = calcularRegiones(rPron.value.list.map(l => l.hourly), rLluvia.status === 'fulfilled' ? rLluvia.value : null, ahora); }
+    try { datos = calcularRegiones(rPron.value.list.map(l => l.hourly), rLluvia.status === 'fulfilled' ? rLluvia.value : null, ahora, rPron.value.list.map(l => l.elevation)); }
     catch (err) { errorDatos = err; }
   }
-  const modelos = rMod.status === 'fulfilled' ? compararModelos(rMod.value.list) : null;
+  const modelos = rMod.status === 'fulfilled' ? compararModelos(rMod.value.list, fechaLocal(ahora)) : null;
 
   const out = [];
   out.push('RESUMEN DE DATOS PARA EL PRONÓSTICO GENERAL DE LA MAÑANA — SONORA');
@@ -255,9 +277,16 @@ export async function buildResumenPronostico() {
   // Impactos con consenso de modelos.
   if (modelos) {
     const imp = [];
-    Object.entries(modelos).forEach(([reg, lista]) => lista.filter(m => m.mencionar).forEach(m => imp.push(`${m.nombre} en ${reg}: ${m.n} de ${m.total} modelos (${m.modelos.join(', ')})`)));
-    out.push(imp.length ? 'Impactos con coincidencia de 2 o más modelos (se pueden mencionar):' : 'Ningún impacto (lluvia, rachas ≥50 km/h, máximas ≥40 °C) tiene coincidencia de 2 o más modelos en ninguna región: no mencionar impactos.');
+    const nombres = { lluvia: `Lluvia (≥${UMBRALES.lluviaMm} mm en el día)`, tormenta: 'Tormenta eléctrica (weather_code 95-99)', rachas: null, calor: null };
+    Object.entries(modelos).forEach(([reg, m]) => ['lluvia', 'tormenta', 'rachas', 'calor'].forEach(k => {
+      if (m[k].mencionar) imp.push(`${nombres[k] || m[k].nombre} en ${reg}: ${m[k].n} de ${m[k].total} modelos (${m[k].modelos.join(', ')})`);
+    }));
+    out.push(imp.length ? 'Impactos con coincidencia de 2 o más modelos (se pueden mencionar):' : 'Ningún impacto (lluvia, tormenta eléctrica, rachas ≥50 km/h, máximas ≥40 °C) tiene coincidencia de 2 o más modelos en ninguna región: no mencionar impactos.');
     imp.forEach(i => out.push(`  - ${i}`));
+    // El "best match" de Open-Meteo puede dar 0 mm donde ICON o ECMWF dan lluvia: se avisa para no confundirse.
+    const bm = datos ? Math.max(...Object.values(datos.regiones).map(r => (r.lluvia && r.lluvia.mm ? r.lluvia.mm.max : 0))) : null;
+    const conLluvia = Object.values(modelos).filter(m => m.lluvia.mencionar).length;
+    if (bm === 0 && conLluvia) out.push(`AVISO: el "best match" (la cifra de la página de lluvia y de /api/resumen-ciclones) da 0 mm en todo Sonora, pero ICON y/o ECMWF marcan lluvia en ${conLluvia} región(es). En esta zona el best match suele seguir al GFS; para lluvia convectiva conviene guiarse por los acumulados de cada modelo.`);
   } else out.push('No se pudo comparar modelos; no hay base para afirmar impactos.');
   // Contraste con el SMN.
   if (rSmn.status === 'fulfilled') {
@@ -271,7 +300,7 @@ export async function buildResumenPronostico() {
       if (subiendo.length && !bajando.length) out.push('  → Posible discrepancia: el SMN habla de descenso pero los datos de Open-Meteo no muestran mínimas bajando.');
     }
   }
-  out.push('La comparación de modelos usa el máximo del día en cualquier municipio de la región; por eso ICON o ECMWF pueden marcar ≥1 mm donde el "best match" de las cifras por región muestra 0 mm.');
+  out.push('La comparación de modelos usa el máximo del día (00-24 h, hora de Sonora) en cualquier municipio de la región. La probabilidad de lluvia solo existe para el best match (Open-Meteo no la da por modelo).');
   out.push('Las regiones salen de api/_regiones.js (asignación propuesta; un municipio puede estar en dos regiones). Los umbrales de modelos están en api/_pronostico-data.js.');
   out.push('No se redacta el pronóstico: son solo datos ordenados.');
   return { text: out.join('\n'), ok: meta.ok && Boolean(datos) && Boolean(modelos) && rLluvia.status === 'fulfilled' };

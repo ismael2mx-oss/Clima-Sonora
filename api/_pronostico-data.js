@@ -72,14 +72,14 @@ function rangoConNombres(items, getValor) {
   if (!con.length) return null;
   const min = con.reduce((a, b) => (b.v < a.v ? b : a));
   const max = con.reduce((a, b) => (b.v > a.v ? b : a));
-  return { min: redondea(min.v), minMun: min.m.municipio, max: redondea(max.v), maxMun: max.m.municipio, n: con.length };
+  return { min: redondea(min.v), minMun: min.m.municipio, minElev: ok(min.m.elev) ? Math.round(min.m.elev) : null, max: redondea(max.v), maxMun: max.m.municipio, maxElev: ok(max.m.elev) ? Math.round(max.m.elev) : null, n: con.length };
 }
 
 /**
  * serie: lista de series horarias (por índice de municipio); lluvia: { municipios:[{prob[], mm[]}] } (fuente única);
  * Devuelve { regiones: { nombre: {...datos} } } con temperaturas, lluvia, viento, humedad, nubes y tendencia.
  */
-export function calcularRegiones(serie, lluvia, ahoraMs = Date.now()) {
+export function calcularRegiones(serie, lluvia, ahoraMs = Date.now(), elevaciones = []) {
   const hoyStr = fechaLocal(ahoraMs);
   const tiempos = serie[0]?.time || [];
   const t0 = tiempos.indexOf(`${hoyStr}T00:00`);
@@ -87,7 +87,7 @@ export function calcularRegiones(serie, lluvia, ahoraMs = Date.now()) {
   const porRegion = municipiosPorRegion();
   const regiones = {};
   for (const [nombre, munis] of Object.entries(porRegion)) {
-    const items = munis.map(m => ({ municipio: m.municipio, met: metricasMunicipio(serie[m.indice] || {}, t0), lluvia: lluvia ? lluvia.municipios[m.indice] : null }));
+    const items = munis.map(m => ({ municipio: m.municipio, elev: elevaciones[m.indice], met: metricasMunicipio(serie[m.indice] || {}, t0), lluvia: lluvia ? lluvia.municipios[m.indice] : null }));
     const n = items.length;
 
     const tmax = rangoConNombres(items, x => x.met.tmaxHoy?.v);
@@ -134,7 +134,7 @@ export function calcularRegiones(serie, lluvia, ahoraMs = Date.now()) {
     const nubMedia = media(x => x.met.nubesTarde);
     const nubes = nub ? { media: redondea(nubMedia, 0), min: nub.min, max: nub.max, clase: nubMedia < 20 ? 'despejado' : nubMedia <= 60 ? 'parcialmente nublado' : 'nublado' } : null;
 
-    regiones[nombre] = { n, municipios: items.map(x => x.municipio), tmax, tmin, dTmax, tendencia, lluvia: ll, viento, humedad: rh, nubes };
+    regiones[nombre] = { n, municipios: items.map(x => x.municipio), elevaciones: items.map(x => ({ municipio: x.municipio, elev: ok(x.elev) ? Math.round(x.elev) : null, tmax: redondea(x.met.tmaxHoy?.v) })), tmax, tmin, dTmax, tendencia, lluvia: ll, viento, humedad: rh, nubes };
   }
   return { hoy: hoyStr, regiones };
 }
@@ -147,31 +147,92 @@ export function tendenciaTxt(delta, sustantivo) {
 }
 
 // ---------- comparación de modelos ----------
-// Para cada región y cada impacto, cuántos modelos (de los disponibles) tienen al menos un municipio sobre el umbral.
-const IMPACTOS = [
-  { id: 'lluvia', nombre: `Lluvia (≥${UMBRALES.lluviaMm} mm en el día)`, campo: 'precipitation_sum', umbral: UMBRALES.lluviaMm },
+// Para cada región se calcula, por modelo (ICON, GFS, ECMWF) y por separado, lo que da el máximo entre los municipios de
+// la región: acumulado de lluvia, tormenta eléctrica (weather_code 95-99 en alguna hora) y CAPE; además rachas y máximas.
+// Un impacto "coincide" cuando 2 o más modelos lo marcan.
+const IMPACTOS_DIARIOS = [
   { id: 'rachas', nombre: `Rachas ≥${UMBRALES.rachaKmh} km/h`, campo: 'wind_gusts_10m_max', umbral: UMBRALES.rachaKmh },
   { id: 'calor', nombre: `Máximas ≥${UMBRALES.tmaxC} °C`, campo: 'temperature_2m_max', umbral: UMBRALES.tmaxC }
 ];
 
-export function compararModelos(listaModelos) {
+function veredicto(n, total) {
+  if (total === 0) return 'sin datos de modelos';
+  if (n >= 2) return n === total && total >= 3 ? 'coinciden todos → mencionar (confianza alta)' : 'coinciden → mencionar (confianza media)';
+  return n === 1 ? 'baja confianza → no mencionar' : 'ningún modelo';
+}
+
+/**
+ * listaModelos: respuesta de Open-Meteo con los tres modelos (un elemento por municipio, con daily y hourly).
+ * hoyStr: fecha de hoy en hora de Sonora ("2026-10-22"); solo cuentan las horas de ese día (00-24 h).
+ */
+export function compararModelos(listaModelos, hoyStr) {
   const porRegion = municipiosPorRegion();
-  // Un modelo está "disponible" si trae algún dato numérico del campo para el día de hoy.
-  const disponible = (m, campo) => listaModelos.some(l => ok(l?.daily?.[`${campo}_${m.id}`]?.[0]));
+  const horasDeHoy = d => { const t = d?.hourly?.time || []; const idx = []; t.forEach((x, k) => { if (String(x).startsWith(hoyStr)) idx.push(k); }); return idx; };
   const out = {};
   for (const [region, munis] of Object.entries(porRegion)) {
-    out[region] = IMPACTOS.map(imp => {
-      const modelos = MODELOS.filter(m => disponible(m, imp.campo));
-      const coinciden = modelos.filter(m => munis.some(mu => {
-        const v = listaModelos[mu.indice]?.daily?.[`${imp.campo}_${m.id}`]?.[0];
-        return ok(v) && v >= imp.umbral;
-      }));
-      const n = coinciden.length, total = modelos.length;
-      const veredicto = total === 0 ? 'sin datos de modelos' : n >= 2 ? (n === total && total >= 3 ? 'coinciden todos → mencionar (confianza alta)' : 'coinciden → mencionar (confianza media)') : n === 1 ? 'baja confianza → no mencionar' : 'ningún modelo';
-      return { id: imp.id, nombre: imp.nombre, n, total, modelos: coinciden.map(m => m.nombre), mencionar: n >= 2, veredicto };
+    const por = MODELOS.map(mod => {
+      const dia = (campo, mu) => listaModelos[mu.indice]?.daily?.[`${campo}_${mod.id}`]?.[0];
+      const hor = (campo, mu) => listaModelos[mu.indice]?.hourly?.[`${campo}_${mod.id}`];
+      // Lluvia: acumulado diario máximo entre municipios, municipios con ≥1 mm y franja con ≥0.1 mm por hora.
+      let mmMax = null, mmMun = null, nLluvia = 0, dispLluvia = false;
+      const horasLluvia = [];
+      // Tormenta: municipios con weather_code 95-99 y horas; CAPE máximo.
+      let dispTormenta = false, dispCape = false, capeMax = null;
+      const munTormenta = [], horasTormenta = [];
+      munis.forEach(mu => {
+        const mm = dia('precipitation_sum', mu);
+        if (Number.isFinite(mm)) { dispLluvia = true; if (mmMax === null || mm > mmMax) { mmMax = mm; mmMun = mu.municipio; } if (mm >= UMBRALES.lluviaMm) nLluvia++; }
+        const idx = horasDeHoy(listaModelos[mu.indice]);
+        const P = hor('precipitation', mu) || [], WC = hor('weather_code', mu) || [], CAPE = hor('cape', mu) || [];
+        idx.forEach(k => {
+          if (Number.isFinite(P[k]) && P[k] >= 0.1) horasLluvia.push(k % 24);
+          if (Number.isFinite(WC[k])) { dispTormenta = true; if (WC[k] >= UMBRALES.tormentaDesde && WC[k] <= UMBRALES.tormentaHasta) { horasTormenta.push(k % 24); if (!munTormenta.includes(mu.municipio)) munTormenta.push(mu.municipio); } }
+          if (Number.isFinite(CAPE[k])) { dispCape = true; if (capeMax === null || CAPE[k] > capeMax.v) capeMax = { v: Math.round(CAPE[k]), hora: k % 24, municipio: mu.municipio }; }
+        });
+      });
+      return {
+        nombre: mod.nombre,
+        lluvia: dispLluvia ? { mm: redondea(mmMax), municipio: mmMun, nMunicipios: nLluvia, franja: franjasTxt(horasLluvia) } : null,
+        tormenta: dispTormenta ? { municipios: munTormenta, franja: franjasTxt(horasTormenta) } : null,
+        cape: dispCape ? capeMax : null
+      };
     });
+
+    const lluviaDisp = por.filter(m => m.lluvia), tormDisp = por.filter(m => m.tormenta);
+    const lluviaSi = lluviaDisp.filter(m => m.lluvia.mm >= UMBRALES.lluviaMm), tormSi = tormDisp.filter(m => m.tormenta.municipios.length);
+    const regionOut = {
+      porModelo: por,
+      lluvia: { n: lluviaSi.length, total: lluviaDisp.length, modelos: lluviaSi.map(m => m.nombre), mencionar: lluviaSi.length >= 2, veredicto: veredicto(lluviaSi.length, lluviaDisp.length) },
+      tormenta: { n: tormSi.length, total: tormDisp.length, modelos: tormSi.map(m => m.nombre), mencionar: tormSi.length >= 2, veredicto: veredicto(tormSi.length, tormDisp.length) }
+    };
+    for (const imp of IMPACTOS_DIARIOS) {
+      const disp = MODELOS.filter(mod => listaModelos.some(l => Number.isFinite(l?.daily?.[`${imp.campo}_${mod.id}`]?.[0])));
+      const si = disp.filter(mod => munis.some(mu => { const v = listaModelos[mu.indice]?.daily?.[`${imp.campo}_${mod.id}`]?.[0]; return Number.isFinite(v) && v >= imp.umbral; }));
+      regionOut[imp.id] = { nombre: imp.nombre, n: si.length, total: disp.length, modelos: si.map(m => m.nombre), mencionar: si.length >= 2, veredicto: veredicto(si.length, disp.length) };
+    }
+    out[region] = regionOut;
   }
   return out;
+}
+
+// Máximo estatal de lluvia de hoy por modelo (referencia para /api/resumen-ciclones): [{ nombre, mm, municipio }].
+export function lluviaMaxPorModelo(listaModelos, nombresMunicipios) {
+  return MODELOS.map(mod => {
+    let mejor = null;
+    listaModelos.forEach((l, i) => { const v = l?.daily?.[`precipitation_sum_${mod.id}`]?.[0]; if (Number.isFinite(v) && (mejor === null || v > mejor.mm)) mejor = { mm: v, municipio: nombresMunicipios[i] }; });
+    return { nombre: mod.nombre, mm: mejor ? redondea(mejor.mm) : null, municipio: mejor ? mejor.municipio : null };
+  });
+}
+
+// Vigencia de un aviso del SMN: si se emitió hoy o antes, y hace cuántas horas (para no tomar por de hoy un texto viejo).
+export function vigenciaSmn(emitidoIso, ahoraMs = Date.now()) {
+  if (!emitidoIso) return { esDeHoy: null, horas: null, texto: 'fecha de emisión no disponible (no se puede saber si está vigente)' };
+  const ms = Date.parse(emitidoIso);
+  const horas = Math.round((ahoraMs - ms) / 3600000);
+  const esDeHoy = fechaLocal(ms) === fechaLocal(ahoraMs);
+  if (esDeHoy) return { esDeHoy, horas, texto: `emitido hoy, hace ${horas} h` };
+  const diasAtras = Math.round((Date.parse(fechaLocal(ahoraMs) + 'T12:00:00Z') - Date.parse(fechaLocal(ms) + 'T12:00:00Z')) / 86400000);
+  return { esDeHoy, horas, texto: `NO ES DE HOY: emitido ${diasAtras === 1 ? 'ayer' : `hace ${diasAtras} días`} (hace ${horas} h); sus "hoy", "mañana" o días de la semana se refieren al día de emisión` };
 }
 
 // ---------- texto del SMN ----------

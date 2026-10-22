@@ -1,5 +1,8 @@
 import { loadPacificStorms, loadOutlookData } from './ciclones.js';
 import { loadSonoraRain } from './sonora-lluvia.js';
+import { loadOpenMeteoModelos } from './_openmeteo.js';
+import { lluviaMaxPorModelo } from './_pronostico-data.js';
+import { MUNICIPIOS } from './_municipios.js';
 
 const TZ = 'America/Hermosillo';
 const SITE = 'https://clima-sonora-6fne.vercel.app';
@@ -188,10 +191,11 @@ function rainSection(rain) {
 export const failure = (what, err) => `[No disponible: no se pudo consultar ${what}. Motivo: ${err && err.message ? err.message : 'error desconocido'}]`;
 
 export async function buildResumenCiclones() {
-  const [stormsR, outlookR, rainR] = await Promise.allSettled([
+  const [stormsR, outlookR, rainR, modelosR] = await Promise.allSettled([
     loadPacificStorms(),
     loadOutlookData(),
-    loadSonoraRain()
+    loadSonoraRain(),
+    loadOpenMeteoModelos()
   ]);
 
   const parts = [];
@@ -230,6 +234,13 @@ export async function buildResumenCiclones() {
     const r = rainR.value;
     parts.push('Probabilidad máxima y acumulado del día completo (00-24 h, hora de Sonora), de Open-Meteo; es la misma cifra que usan la página de lluvia y /api/resumen-pronostico.');
     if (r.desdeCache) parts.push(`[Datos de Open-Meteo de las ${new Intl.DateTimeFormat('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TZ }).format(new Date(r.datosDe))} h: la consulta actual falló ${r.motivo || 'por un error de Open-Meteo'}.]`);
+  }
+  // Referencia por modelo: el "best match" puede dar 0 mm donde ICON o ECMWF pronostican lluvia.
+  if (modelosR.status === 'fulfilled') {
+    const m = lluviaMaxPorModelo(modelosR.value.list, MUNICIPIOS.map(x => x.municipio));
+    parts.push(`Referencia por modelo, acumulado máximo de HOY en cualquier municipio (el best match de abajo puede dar menos): ${m.map(x => (x.mm === null ? `${x.nombre} sin dato` : `${x.nombre} ${x.mm.toFixed(1)} mm${x.mm > 0 ? ` (${x.municipio})` : ''}`)).join(' · ')}. Detalle por región: ${SITE}/api/resumen-pronostico`);
+  } else {
+    parts.push(`[Referencia por modelo (ICON/GFS/ECMWF) no disponible: ${modelosR.reason && modelosR.reason.message ? modelosR.reason.message : 'error desconocido'}]`);
   }
   parts.push(rainR.status === 'rejected' ? failure('la lluvia de Open-Meteo', rainR.reason) : rainSection(rainR.value));
   parts.push('');
