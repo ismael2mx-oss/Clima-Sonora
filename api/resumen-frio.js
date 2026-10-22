@@ -329,19 +329,20 @@ async function respondResumenPronostico(req, res) {
   try {
     if (String(req.query?.debug || '') === 'om') { // TEMPORAL: diagnóstico de Open-Meteo desde Vercel
       const { MUNICIPIOS } = await import('./_municipios.js');
-      const lat = MUNICIPIOS.map(m => m.lat).join(','), lon = MUNICIPIOS.map(m => m.lon).join(',');
-      const base = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon + '&models=icon_seamless,gfs_seamless,ecmwf_ifs025&daily=temperature_2m_max,wind_gusts_10m_max,precipitation_sum,precipitation_probability_max&hourly=precipitation,weather_code,cape&timezone=America/Hermosillo&forecast_days=2';
       const out = {};
-      const variantes = { 'exacta': '', 'con cb': '&cb=' + Date.now(), 'sin hourly': null, 'daily solo prob': 'DAILYPROB' };
-      for (const [k, q] of Object.entries(variantes)) {
-        let url = base + (q && q !== 'DAILYPROB' ? q : '');
-        if (q === null) url = base.replace('&hourly=precipitation,weather_code,cape', '');
-        if (q === 'DAILYPROB') url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon + '&models=icon_seamless,gfs_seamless,ecmwf_ifs025&daily=precipitation_probability_max&timezone=America/Hermosillo&forecast_days=2';
+      for (const n of [3, 10, 20, 36, 50, 72]) {
+        const ms = MUNICIPIOS.slice(0, n);
+        const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + ms.map(m => m.lat).join(',') + '&longitude=' + ms.map(m => m.lon).join(',') + '&models=icon_seamless,gfs_seamless,ecmwf_ifs025&daily=precipitation_probability_max&timezone=America/Hermosillo&forecast_days=2';
         try {
           const r = await fetch(url); const j = await r.json(); const arr = Array.isArray(j) ? j : [j];
-          out[k] = { status: r.status, iconProbFinitos: arr.filter(l => l.daily && Number.isFinite(l.daily.precipitation_probability_max_icon_seamless && l.daily.precipitation_probability_max_icon_seamless[0])).length, gfs: arr.filter(l => l.daily && Number.isFinite(l.daily.precipitation_probability_max_gfs_seamless && l.daily.precipitation_probability_max_gfs_seamless[0])).length, generation: arr[0].generationtime_ms };
-        } catch (e) { out[k] = { error: e.message }; }
+          out['n=' + n] = { icon: arr.filter(l => l.daily && Number.isFinite(l.daily.precipitation_probability_max_icon_seamless && l.daily.precipitation_probability_max_icon_seamless[0])).length, ecmwf: arr.filter(l => l.daily && Number.isFinite(l.daily.precipitation_probability_max_ecmwf_ifs025 && l.daily.precipitation_probability_max_ecmwf_ifs025[0])).length, total: arr.length };
+        } catch (e) { out['n=' + n] = { error: e.message }; }
       }
+      // ICON solo (sin otros modelos) con las 72
+      const ms = MUNICIPIOS;
+      const u2 = 'https://api.open-meteo.com/v1/forecast?latitude=' + ms.map(m => m.lat).join(',') + '&longitude=' + ms.map(m => m.lon).join(',') + '&models=icon_seamless&daily=precipitation_probability_max&timezone=America/Hermosillo&forecast_days=2';
+      const j2 = await (await fetch(u2)).json();
+      out['icon solo 72'] = { finitos: (Array.isArray(j2) ? j2 : [j2]).filter(l => l.daily && Number.isFinite(l.daily.precipitation_probability_max && l.daily.precipitation_probability_max[0])).length };
       res.setHeader('Cache-Control', 'no-store');
       res.status(200).json(out);
       return;
