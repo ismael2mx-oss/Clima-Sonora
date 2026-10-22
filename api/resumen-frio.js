@@ -327,6 +327,18 @@ export async function buildResumenFrio({ simular = false } = {}) {
 // aquí mediante una reescritura de vercel.json (?tipo=pronostico) en vez de tener su propia función.
 async function respondResumenPronostico(req, res) {
   try {
+    if (String(req.query?.debug || '') === 'om') { // TEMPORAL: diagnóstico de Open-Meteo desde Vercel
+      const out = {};
+      for (const modelos of ['icon_seamless,gfs_seamless,ecmwf_ifs025', 'icon_seamless', 'icon_global', 'icon_eu']) {
+        const url = 'https://api.open-meteo.com/v1/forecast?latitude=30.63,31.33&longitude=-109.97,-109.95&models=' + modelos + '&daily=precipitation_probability_max,precipitation_sum&hourly=precipitation_probability&timezone=America/Hermosillo&forecast_days=2';
+        const r = await fetch(url);
+        const t = await r.text();
+        out[modelos] = { status: r.status, server: r.headers.get('server'), cf: r.headers.get('cf-ray'), cuerpo: t.slice(0, 700) };
+      }
+      res.setHeader('Cache-Control', 'no-store');
+      res.status(200).json(out);
+      return;
+    }
     const { buildResumenPronostico } = await import('./_resumen-pronostico.js');
     const { text, ok } = await buildResumenPronostico();
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
