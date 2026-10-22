@@ -328,13 +328,27 @@ export async function buildResumenFrio({ simular = false } = {}) {
 async function respondResumenPronostico(req, res) {
   try {
     if (String(req.query?.debug || '') === 'om') { // TEMPORAL: diagnóstico de Open-Meteo desde Vercel
-      const { loadOpenMeteoModelos } = await import('./_openmeteo.js');
-      const r = await loadOpenMeteoModelos();
-      const ks = Object.keys(r.list[0].daily);
-      const cuenta = {};
-      ks.filter(k => k.startsWith('precipitation_probability_max')).forEach(k => { cuenta[k] = r.list.filter(l => Number.isFinite(l.daily[k] && l.daily[k][0])).length; });
+      const out = {};
+      const base = 'https://api.open-meteo.com/v1/forecast?latitude=30.63,31.33,29.07&longitude=-109.97,-109.95,-110.96&timezone=America/Hermosillo&forecast_days=1';
+      const variantes = {
+        'multi daily+hourly (como en producción)': '&models=icon_seamless,gfs_seamless,ecmwf_ifs025&daily=precipitation_probability_max&hourly=precipitation_probability',
+        'icon_seamless solo': '&models=icon_seamless&daily=precipitation_probability_max&hourly=precipitation_probability',
+        'icon_global solo': '&models=icon_global&daily=precipitation_probability_max&hourly=precipitation_probability',
+        'sin models (best match)': '&daily=precipitation_probability_max&hourly=precipitation_probability',
+        'icon_seamless horario prob + precip': '&models=icon_seamless&hourly=precipitation_probability,precipitation'
+      };
+      for (const [k, q] of Object.entries(variantes)) {
+        try {
+          const r = await fetch(base + q);
+          const j = await r.json();
+          const arr = Array.isArray(j) ? j : [j];
+          const dk = Object.keys(arr[0].daily || {}).filter(x => x.startsWith('precipitation_probability_max'));
+          const hk = Object.keys(arr[0].hourly || {}).filter(x => x.startsWith('precipitation_probability'));
+          out[k] = { status: r.status, daily: dk.map(x => x + '=' + JSON.stringify(arr.map(l => l.daily[x]))), hourlyNoNulos: hk.map(x => x + ':' + arr[0].hourly[x].filter(Number.isFinite).length + '/' + arr[0].hourly[x].length) };
+        } catch (e) { out[k] = { error: e.message }; }
+      }
       res.setHeader('Cache-Control', 'no-store');
-      res.status(200).json({ claves: ks, finitosPorModelo: cuenta, muestraICON: r.list.slice(0, 4).map(l => l.daily.precipitation_probability_max_icon_seamless), desdeCache: r.desdeCache, datosDe: r.datosDe });
+      res.status(200).json(out);
       return;
     }
     const { buildResumenPronostico } = await import('./_resumen-pronostico.js');
