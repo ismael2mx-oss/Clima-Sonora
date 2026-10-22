@@ -1,5 +1,6 @@
 import { loadSonoraFrio } from './_frio-data.js';
 import { loadFrenteEstado, localStringToMs } from './_frente-data.js';
+import { loadAvisosAz, textoAvisosAz } from './_nws.js';
 
 const TZ = 'America/Hermosillo';
 const SITE = 'https://clima-sonora-6fne.vercel.app';
@@ -159,32 +160,14 @@ function nieveSection(frio) {
   return out.join('\n').trimEnd();
 }
 
-const FRIO_VIENTO_RE = /freeze|frost|wind|dust|cold|snow|winter/i;
-
+// Avisos del NWS para los condados de Arizona que colindan con Sonora (y Maricopa): todos los tipos, no solo frío y viento.
+// El cálculo vive en _nws.js y lo comparte /api/resumen-pronostico.
 export async function loadAzAlerts() {
-  const res = await fetch('https://api.weather.gov/alerts/active?area=AZ', {
-    headers: { 'User-Agent': 'clima-sonora (https://clima-sonora-6fne.vercel.app)', 'Accept': 'application/geo+json' }
-  });
-  if (!res.ok) throw new Error('No se pudo contactar al National Weather Service.');
-  const data = await res.json();
-  return (data.features || []).filter(f => FRIO_VIENTO_RE.test(f.properties?.event || ''));
+  return loadAvisosAz();
 }
 
-export function alertasSection(feats) {
-  if (!feats.length) return 'Sin avisos vigentes de frío, heladas o viento para Arizona (National Weather Service).';
-  return feats.map((f, i) => {
-    const p = f.properties;
-    const start = p.onset || p.effective;
-    const end = p.ends || p.expires;
-    const vigencia = [start ? fmtShort(new Date(start)) : 'n/d', end ? fmtShort(new Date(end)) : 'sin definir'].join(' a ');
-    const resumen = p.headline || (p.description ? p.description.slice(0, 220).replace(/\s+/g, ' ') + '…' : 'sin resumen');
-    return [
-      `${i + 1}. ${p.event}`,
-      `   Zona: ${p.areaDesc || 'no especificada'}`,
-      `   Vigencia (hora de Sonora): ${vigencia}`,
-      `   Resumen: ${resumen}`
-    ].join('\n');
-  }).join('\n\n');
+export function alertasSection(r) {
+  return textoAvisosAz(r);
 }
 
 export const failure = (what, err) => `[No disponible: no se pudo consultar ${what}. Motivo: ${err && err.message ? err.message : 'error desconocido'}]`;

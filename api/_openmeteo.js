@@ -37,7 +37,7 @@ export const MODELOS = [
   { id: 'gfs_seamless', nombre: 'GFS', meta: 'ncep_gfs025' },
   { id: 'ecmwf_ifs025', nombre: 'ECMWF', meta: 'ecmwf_ifs025' }
 ];
-const DIARIAS_MODELOS = ['temperature_2m_max', 'wind_gusts_10m_max', 'precipitation_sum'];
+const DIARIAS_MODELOS = ['temperature_2m_max', 'wind_gusts_10m_max', 'precipitation_sum', 'precipitation_probability_max'];
 // Por hora y por modelo: lluvia, código de tiempo (95-99 = tormenta eléctrica) y CAPE (energía para tormentas, J/kg).
 const HORARIAS_MODELOS = ['precipitation', 'weather_code', 'cape'];
 

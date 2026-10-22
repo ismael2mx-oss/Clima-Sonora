@@ -174,7 +174,7 @@ export function compararModelos(listaModelos, hoyStr) {
       const dia = (campo, mu) => listaModelos[mu.indice]?.daily?.[`${campo}_${mod.id}`]?.[0];
       const hor = (campo, mu) => listaModelos[mu.indice]?.hourly?.[`${campo}_${mod.id}`];
       // Lluvia: acumulado diario máximo entre municipios, municipios con ≥1 mm y franja con ≥0.1 mm por hora.
-      let mmMax = null, mmMun = null, nLluvia = 0, dispLluvia = false;
+      let mmMax = null, mmMun = null, nLluvia = 0, dispLluvia = false, probMax = null, probMun = null;
       const horasLluvia = [];
       // Tormenta: municipios con weather_code 95-99 y horas; CAPE máximo.
       let dispTormenta = false, dispCape = false, capeMax = null;
@@ -182,6 +182,8 @@ export function compararModelos(listaModelos, hoyStr) {
       munis.forEach(mu => {
         const mm = dia('precipitation_sum', mu);
         if (Number.isFinite(mm)) { dispLluvia = true; if (mmMax === null || mm > mmMax) { mmMax = mm; mmMun = mu.municipio; } if (mm >= UMBRALES.lluviaMm) nLluvia++; }
+        const pr = dia('precipitation_probability_max', mu);
+        if (Number.isFinite(pr) && (probMax === null || pr > probMax)) { probMax = pr; probMun = mu.municipio; }
         const idx = horasDeHoy(listaModelos[mu.indice]);
         const P = hor('precipitation', mu) || [], WC = hor('weather_code', mu) || [], CAPE = hor('cape', mu) || [];
         idx.forEach(k => {
@@ -192,6 +194,7 @@ export function compararModelos(listaModelos, hoyStr) {
       });
       return {
         nombre: mod.nombre,
+        prob: probMax === null ? null : { v: Math.round(probMax), municipio: probMun },
         lluvia: dispLluvia ? { mm: redondea(mmMax), municipio: mmMun, nMunicipios: nLluvia, franja: franjasTxt(horasLluvia) } : null,
         tormenta: dispTormenta ? { municipios: munTormenta, franja: franjasTxt(horasTormenta) } : null,
         cape: dispCape ? capeMax : null
