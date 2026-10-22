@@ -14,9 +14,9 @@ const dir16 = deg => Number.isFinite(deg) ? DIR16[Math.round(((deg % 360) + 360)
 const dateTimeFmt = new Intl.DateTimeFormat('es-MX', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TZ });
 const shortFmt = new Intl.DateTimeFormat('es-MX', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TZ });
 const dayFmt = new Intl.DateTimeFormat('es-MX', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
-const fmtFull = d => dateTimeFmt.format(d) + ' h';
+export const fmtFull = d => dateTimeFmt.format(d) + ' h';
 const fmtShort = d => shortFmt.format(d) + ' h';
-const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+export const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 const round1 = v => Number.isFinite(v) ? Math.round(v * 10) / 10 : null;
 const t = v => Number.isFinite(v) ? `${round1(v)} °C` : 'sin dato';
 
@@ -161,7 +161,7 @@ function nieveSection(frio) {
 
 const FRIO_VIENTO_RE = /freeze|frost|wind|dust|cold|snow|winter/i;
 
-async function loadAzAlerts() {
+export async function loadAzAlerts() {
   const res = await fetch('https://api.weather.gov/alerts/active?area=AZ', {
     headers: { 'User-Agent': 'clima-sonora (https://clima-sonora-6fne.vercel.app)', 'Accept': 'application/geo+json' }
   });
@@ -170,7 +170,7 @@ async function loadAzAlerts() {
   return (data.features || []).filter(f => FRIO_VIENTO_RE.test(f.properties?.event || ''));
 }
 
-function alertasSection(feats) {
+export function alertasSection(feats) {
   if (!feats.length) return 'Sin avisos vigentes de frío, heladas o viento para Arizona (National Weather Service).';
   return feats.map((f, i) => {
     const p = f.properties;
@@ -187,14 +187,14 @@ function alertasSection(feats) {
   }).join('\n\n');
 }
 
-const failure = (what, err) => `[No disponible: no se pudo consultar ${what}. Motivo: ${err && err.message ? err.message : 'error desconocido'}]`;
+export const failure = (what, err) => `[No disponible: no se pudo consultar ${what}. Motivo: ${err && err.message ? err.message : 'error desconocido'}]`;
 
 const fmtLat = v => Math.abs(v).toFixed(1) + '°' + (v >= 0 ? 'N' : 'S');
 const fmtLon = v => Math.abs(v).toFixed(1) + '°' + (v >= 0 ? 'E' : 'O');
 const fmtLocal = s => fmtShort(new Date(localStringToMs(s)));
-const horaSonora = iso => new Intl.DateTimeFormat('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TZ }).format(new Date(iso));
+export const horaSonora = iso => new Intl.DateTimeFormat('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TZ }).format(new Date(iso));
 
-function avanceTexto(a) {
+export function avanceTexto(a) {
   const hacia = `hacia el ${a.rumboTxt} (rumbo ${a.rumbo}°)`;
   if (a.base !== 'comparacion') return `${hacia}; dirección inferida de la forma del frente (no hay análisis anterior del WPC disponible para medir la rapidez)`;
   const ref = `comparado con el análisis de las ${horaSonora(a.previoValido)} h de Sonora, ${a.previoHoras} h antes`;
@@ -340,7 +340,24 @@ export async function buildResumenFrio({ simular = false } = {}) {
   return { text, ok };
 }
 
+// El plan Hobby de Vercel permite 12 funciones: /api/resumen-pronostico (y /api/resumen-pronostico/<lo-que-sea>) llega
+// aquí mediante una reescritura de vercel.json (?tipo=pronostico) en vez de tener su propia función.
+async function respondResumenPronostico(req, res) {
+  try {
+    const { buildResumenPronostico } = await import('./_resumen-pronostico.js');
+    const { text, ok } = await buildResumenPronostico();
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    // Con una fuente caída o datos guardados la respuesta no se guarda en caché.
+    res.setHeader('Cache-Control', ok ? 's-maxage=900, stale-while-revalidate=300' : 'no-store');
+    res.status(200).send(text);
+  } catch (err) {
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(502).send(`No se pudo generar el resumen del pronóstico. Motivo: ${err.message || 'error desconocido'}`);
+  }
+}
+
 export async function respondResumenFrio(req, res) {
+  if (String(req.query?.tipo || '') === 'pronostico') return respondResumenPronostico(req, res);
   try {
     const simular = String(req.query?.simular || '') === '1';
     const { text, ok } = await buildResumenFrio({ simular });

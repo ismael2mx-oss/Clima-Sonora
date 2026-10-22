@@ -4,7 +4,7 @@ import { loadSonoraRain } from './sonora-lluvia.js';
 const TZ = 'America/Hermosillo';
 const SITE = 'https://clima-sonora-6fne.vercel.app';
 
-const PORTS = {
+export const PORTS = {
   'Sonora': [['Puerto Peñasco', 31.32, -113.54], ['Bahía Kino', 28.83, -111.94], ['Guaymas', 27.92, -110.90], ['Yavaros', 26.70, -109.52]],
   'Península de Baja California': [['Ensenada', 31.87, -116.62], ['Guerrero Negro', 27.97, -114.04], ['Santa Rosalía', 27.34, -112.27], ['Loreto', 26.01, -111.35], ['Bahía Magdalena', 24.79, -112.11], ['La Paz', 24.14, -110.31], ['Cabo San Lucas', 22.89, -109.91]],
   'Costa continental (Sinaloa a Oaxaca)': [['Topolobampo', 25.60, -109.05], ['Mazatlán', 23.22, -106.42], ['Puerto Vallarta', 20.65, -105.23], ['Manzanillo', 19.05, -104.32], ['Zihuatanejo', 17.64, -101.55], ['Acapulco', 16.85, -99.88], ['Puerto Escondido', 15.86, -97.07], ['Salina Cruz', 16.17, -95.20]]
@@ -31,14 +31,14 @@ const DIR16 = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSO', 'SO
 
 const kmh = kt => Math.round(kt * 1.852);
 const catLabel = kt => (CATS.find(c => kt < c.max) || CATS[CATS.length - 1]).label;
-const fmtKm = v => Math.round(v).toLocaleString('es-MX') + ' km';
-const dir16 = deg => DIR16[Math.round(((deg % 360) + 360) % 360 / 22.5) % 16];
-const fmtLat = v => Math.abs(v).toFixed(1) + '°' + (v >= 0 ? 'N' : 'S');
-const fmtLon = v => Math.abs(v).toFixed(1) + '°' + (v >= 0 ? 'E' : 'O');
+export const fmtKm = v => Math.round(v).toLocaleString('es-MX') + ' km';
+export const dir16 = deg => DIR16[Math.round(((deg % 360) + 360) % 360 / 22.5) % 16];
+export const fmtLat = v => Math.abs(v).toFixed(1) + '°' + (v >= 0 ? 'N' : 'S');
+export const fmtLon = v => Math.abs(v).toFixed(1) + '°' + (v >= 0 ? 'E' : 'O');
 const dateTimeFmt = new Intl.DateTimeFormat('es-MX', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TZ });
 const shortFmt = new Intl.DateTimeFormat('es-MX', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TZ });
 const dayFmt = new Intl.DateTimeFormat('es-MX', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
-const fmtFull = d => dateTimeFmt.format(d) + ' h';
+export const fmtFull = d => dateTimeFmt.format(d) + ' h';
 const fmtShort = d => shortFmt.format(d) + ' h';
 const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -49,7 +49,7 @@ function haversine(lat1, lon1, lat2, lon2) {
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
-function bearing(lat1, lon1, lat2, lon2) {
+export function bearing(lat1, lon1, lat2, lon2) {
   const rad = Math.PI / 180;
   const y = Math.sin((lon2 - lon1) * rad) * Math.cos(lat2 * rad);
   const x = Math.cos(lat1 * rad) * Math.sin(lat2 * rad) - Math.sin(lat1 * rad) * Math.cos(lat2 * rad) * Math.cos((lon2 - lon1) * rad);
@@ -66,7 +66,7 @@ function parseValidLabel(s) {
   return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), h - off, Number(m[5])));
 }
 
-function nearest(lat, lon, ports) {
+export function nearest(lat, lon, ports) {
   let best = null;
   ports.forEach(([name, la, lo]) => {
     const d = haversine(lat, lon, la, lo);
@@ -75,7 +75,7 @@ function nearest(lat, lon, ports) {
   return best;
 }
 
-function stormSection(s, index) {
+export function stormSection(s, index) {
   const feats = (s.points && s.points.features) || [];
   const p0 = feats.map(f => f.properties).find(p => Number(p.tau) === 0) || null;
   const gustKt = p0 && Number(p0.gust) > 0 && Number(p0.gust) < 9999 ? Number(p0.gust) : null;
@@ -116,7 +116,7 @@ function stormSection(s, index) {
   return L.join('\n');
 }
 
-function bboxOf(geom) {
+export function bboxOf(geom) {
   let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
   const walk = c => {
     if (typeof c[0] === 'number') {
@@ -128,20 +128,30 @@ function bboxOf(geom) {
   return { minLat, maxLat, minLon, maxLon };
 }
 
-function outlookSection(outlook) {
+// Un polígono que abarca casi todo el globo (más de 200° de longitud o 120° de latitud) es un artefacto de los datos.
+export const esAreaGlobal = b => b.maxLon - b.minLon > 200 || b.maxLat - b.minLat > 120;
+
+export function outlookSection(outlook) {
   const areas = (outlook && outlook.areas && outlook.areas.features) || [];
   if (!areas.length) return 'Sin zonas de posible formación marcadas por el NHC en el Pacífico.';
   return areas.map((f, i) => {
     const p = f.properties || {};
     const b = bboxOf(f.geometry);
+    const issued = p.idp_filedate ? ` (perspectiva del NHC emitida ${fmtFull(new Date(Number(p.idp_filedate)))})` : '';
+    const cabecera = [
+      `${i + 1}. Zona ${i + 1}${issued}`,
+      `   Probabilidad de formación a 48 horas: ${p.prob2day || 'n/d'} (${RISK[p.risk2day] || p.risk2day || 'n/d'})`,
+      `   Probabilidad de formación a 7 días: ${p.prob7day || 'n/d'} (${RISK[p.risk7day] || p.risk7day || 'n/d'})`
+    ];
+    if (esAreaGlobal(b)) {
+      // A veces el NHC entrega un polígono que cubre todo el globo (cruza la línea de fecha): no sirve para ubicar la zona.
+      return [...cabecera, '   Ubicación general: no disponible (el polígono que entrega el NHC cubre todo el globo; no permite ubicar la zona ni calcular distancias)'].join('\n');
+    }
     const cLat = (b.minLat + b.maxLat) / 2, cLon = (b.minLon + b.maxLon) / 2;
     const n = nearest(cLat, cLon, ALL_PORTS);
     const brg = dir16(bearing(n.la, n.lo, cLat, cLon));
-    const issued = p.idp_filedate ? ` (perspectiva del NHC emitida ${fmtFull(new Date(Number(p.idp_filedate)))})` : '';
     return [
-      `${i + 1}. Zona ${i + 1}${issued}`,
-      `   Probabilidad de formación a 48 horas: ${p.prob2day || 'n/d'} (${RISK[p.risk2day] || p.risk2day || 'n/d'})`,
-      `   Probabilidad de formación a 7 días: ${p.prob7day || 'n/d'} (${RISK[p.risk7day] || p.risk7day || 'n/d'})`,
+      ...cabecera,
       `   Ubicación general: centro aproximado en ${fmtLat(cLat)} ${fmtLon(cLon)}; extensión de ${fmtLat(b.minLat)} a ${fmtLat(b.maxLat)} y de ${fmtLon(b.minLon)} a ${fmtLon(b.maxLon)}`,
       `   Referencia: a unos ${fmtKm(n.d)} al ${brg} de ${n.name}`
     ].join('\n');
@@ -175,7 +185,7 @@ function rainSection(rain) {
   return out.join('\n').trimEnd();
 }
 
-const failure = (what, err) => `[No disponible: no se pudo consultar ${what}. Motivo: ${err && err.message ? err.message : 'error desconocido'}]`;
+export const failure = (what, err) => `[No disponible: no se pudo consultar ${what}. Motivo: ${err && err.message ? err.message : 'error desconocido'}]`;
 
 export async function buildResumenCiclones() {
   const [stormsR, outlookR, rainR] = await Promise.allSettled([
@@ -216,6 +226,11 @@ export async function buildResumenCiclones() {
   parts.push('==================================================');
   parts.push('LLUVIA EN SONORA, PRÓXIMOS 5 DÍAS (72 MUNICIPIOS)');
   parts.push('==================================================');
+  if (rainR.status === 'fulfilled') {
+    const r = rainR.value;
+    parts.push('Probabilidad máxima y acumulado del día completo (00-24 h, hora de Sonora), de Open-Meteo; es la misma cifra que usan la página de lluvia y /api/resumen-pronostico.');
+    if (r.desdeCache) parts.push(`[Datos de Open-Meteo de las ${new Intl.DateTimeFormat('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TZ }).format(new Date(r.datosDe))} h: la consulta actual falló ${r.motivo || 'por un error de Open-Meteo'}.]`);
+  }
   parts.push(rainR.status === 'rejected' ? failure('la lluvia de Open-Meteo', rainR.reason) : rainSection(rainR.value));
   parts.push('');
 
@@ -226,7 +241,7 @@ export default async function handler(req, res) {
   try {
     const text = await buildResumenCiclones();
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.setHeader('Cache-Control', 's-maxage=900, stale-while-revalidate=300');
+    res.setHeader('Cache-Control', /\[(No disponible|Datos de Open-Meteo)/.test(text) ? 'no-store' : 's-maxage=900, stale-while-revalidate=300');
     res.status(200).send(text);
   } catch (err) {
     res.status(502).send(`No se pudo generar el resumen de ciclones. Motivo: ${err.message || 'error desconocido'}`);

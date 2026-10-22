@@ -7,7 +7,7 @@ export default async function handler(req, res) {
   try {
     const text = await buildResumenCiclones();
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.setHeader('Cache-Control', 's-maxage=900, stale-while-revalidate=300');
+    res.setHeader('Cache-Control', /\[(No disponible|Datos de Open-Meteo)/.test(text) ? 'no-store' : 's-maxage=900, stale-while-revalidate=300');
     res.status(200).send(text);
   } catch (err) {
     res.status(502).send(`No se pudo generar el resumen de ciclones. Motivo: ${err.message || 'error desconocido'}`);

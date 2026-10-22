@@ -107,7 +107,7 @@ const localStringToMs = s => Date.parse(`${s.length === 13 ? s + ':00' : s}${SON
 // ---------- SMN (texto oficial) ----------
 
 const MESES = { enero: 0, febrero: 1, marzo: 2, abril: 3, mayo: 4, junio: 5, julio: 6, agosto: 7, septiembre: 8, setiembre: 8, octubre: 9, noviembre: 10, diciembre: 11 };
-const FRENTE_RE = /\bfrentes?\s+frios?\s*,?\s*(?:num(?:ero)?\.?|no\.?|n[o°º]\.?|#)\s*(\d{1,2})\b/g;
+const FRENTE_RE = /\bfrentes?\s+frios?\s*[,(]?\s*(?:num(?:ero)?\.?|no\.?|n[o°º]\.?|#)\s*(\d{1,2})\b/g;
 const ABREVIATURAS = new Set(['num', 'no', 'nº', 'n°', 'km', 'hr', 'hrs', 'mm', 'aprox', 'sr', 'sra', 'dr', 'dra', 'art', 'etc', 'vs']);
 
 function parseAvisoMeta(text) {
@@ -126,6 +126,18 @@ function esLimiteDeOracion(text, i) {
     if (antes && ABREVIATURAS.has(fold(antes[1]))) return false;
   }
   return /^[A-ZÁÉÍÓÚÑ¿¡0-9"“]/.test(text.slice(i + 1).trimStart());
+}
+
+// Divide un texto del SMN en oraciones respetando abreviaturas como "núm." y "km".
+export function dividirOraciones(text) {
+  const out = [];
+  let ini = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (esLimiteDeOracion(text, i)) { out.push(text.slice(ini, i + 1).trim()); ini = i + 1; }
+  }
+  const resto = text.slice(ini).trim();
+  if (resto) out.push(resto);
+  return out;
 }
 
 function oracionAlrededor(text, start, end) {
@@ -157,8 +169,16 @@ async function loadSmnPage(page) {
     while ((m = FRENTE_RE.exec(norm))) {
       menciones.push({ numero: Number(m[1]), frase: oracionAlrededor(text, m.index, m.index + m[0].length) });
     }
-    return { id: page.id, nombre: page.nombre, url: page.url, ...meta, menciones };
+    return { id: page.id, nombre: page.nombre, url: page.url, ...meta, menciones, texto: text };
   });
+}
+
+// Texto completo de las páginas del SMN (aviso general y pronóstico extendido) para quien necesite analizarlo.
+export async function loadSmnTextos() {
+  const results = await Promise.allSettled(SMN_PAGES.map(loadSmnPage));
+  return results.map((r, i) => r.status === 'fulfilled'
+    ? { ok: true, id: SMN_PAGES[i].id, nombre: SMN_PAGES[i].nombre, url: SMN_PAGES[i].url, noAviso: r.value.noAviso, emitido: r.value.emitido, texto: r.value.texto }
+    : { ok: false, id: SMN_PAGES[i].id, nombre: SMN_PAGES[i].nombre, url: SMN_PAGES[i].url, error: r.reason?.message || 'error desconocido' });
 }
 
 export async function loadSmnFrente() {
@@ -686,4 +706,4 @@ export async function loadFrenteEstado({ simular = false } = {}) {
   };
 }
 
-export { localStringToMs, compass };
+export { localStringToMs, compass, fold, haversine };
