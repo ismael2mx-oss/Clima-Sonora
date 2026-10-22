@@ -328,15 +328,13 @@ export async function buildResumenFrio({ simular = false } = {}) {
 async function respondResumenPronostico(req, res) {
   try {
     if (String(req.query?.debug || '') === 'om') { // TEMPORAL: diagnóstico de Open-Meteo desde Vercel
-      const out = {};
-      for (const modelos of ['icon_seamless,gfs_seamless,ecmwf_ifs025', 'icon_seamless', 'icon_global', 'icon_eu']) {
-        const url = 'https://api.open-meteo.com/v1/forecast?latitude=30.63,31.33&longitude=-109.97,-109.95&models=' + modelos + '&daily=precipitation_probability_max,precipitation_sum&hourly=precipitation_probability&timezone=America/Hermosillo&forecast_days=2';
-        const r = await fetch(url);
-        const t = await r.text();
-        out[modelos] = { status: r.status, server: r.headers.get('server'), cf: r.headers.get('cf-ray'), cuerpo: t.slice(0, 700) };
-      }
+      const { loadOpenMeteoModelos } = await import('./_openmeteo.js');
+      const r = await loadOpenMeteoModelos();
+      const ks = Object.keys(r.list[0].daily);
+      const cuenta = {};
+      ks.filter(k => k.startsWith('precipitation_probability_max')).forEach(k => { cuenta[k] = r.list.filter(l => Number.isFinite(l.daily[k] && l.daily[k][0])).length; });
       res.setHeader('Cache-Control', 'no-store');
-      res.status(200).json(out);
+      res.status(200).json({ claves: ks, finitosPorModelo: cuenta, muestraICON: r.list.slice(0, 4).map(l => l.daily.precipitation_probability_max_icon_seamless), desdeCache: r.desdeCache, datosDe: r.datosDe });
       return;
     }
     const { buildResumenPronostico } = await import('./_resumen-pronostico.js');
