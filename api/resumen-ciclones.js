@@ -41,7 +41,7 @@ export const fmtLon = v => Math.abs(v).toFixed(1) + '°' + (v >= 0 ? 'E' : 'O');
 const dateTimeFmt = new Intl.DateTimeFormat('es-MX', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TZ });
 const shortFmt = new Intl.DateTimeFormat('es-MX', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TZ });
 const dayFmt = new Intl.DateTimeFormat('es-MX', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
-export const fmtFull = d => dateTimeFmt.format(d) + ' h';
+export const fmtFull = d => (d instanceof Date && Number.isNaN(d.getTime()) ? "hora no disponible" : dateTimeFmt.format(d) + " h");
 const fmtShort = d => shortFmt.format(d) + ' h';
 const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -78,27 +78,49 @@ export function nearest(lat, lon, ports) {
   return best;
 }
 
+const horaOk = iso => { const d = new Date(iso); return iso && !Number.isNaN(d.getTime()) ? d : null; };
+
+// Hora del último aviso del NHC en hora de Sonora. Las horas del NHC vienen en UTC (la "Z" del JSON) y aquí se convierten
+// a UTC-7. El NHC publica el aviso unos minutos ANTES de su hora nominal (p. ej. sube el de las 21:00 UTC a las 20:42 UTC),
+// por eso a veces la hora del aviso es unos minutos posterior a la hora actual; se muestran las dos.
+export function avisoNhcTxt(s) {
+  const adv = s.advisory || {};
+  const nominal = horaOk(adv.issuance) || horaOk(s.lastUpdate);
+  const publicado = horaOk(adv.publicado);
+  if (!nominal) return 'hora no disponible';
+  const num = adv.num ? `No. ${adv.num}, ` : '';
+  const pub = publicado ? `; el NHC lo publicó a las ${fmtFull(publicado)}` : '';
+  const adelantado = nominal.getTime() > Date.now() ? ' (hora nominal aún no llega: el NHC lo publica unos minutos antes)' : '';
+  return `${num}hora nominal ${fmtFull(nominal)} (hora de Sonora)${pub}${adelantado}`;
+}
+
+// Versión que nunca lanza: si un sistema trae datos raros, ese bloque lo dice y los demás salen completos.
+export function stormSectionSegura(s, index) {
+  try { return stormSection(s, index); } catch (err) { return `${index + 1}. ${s && s.name ? s.name : 'Sistema'}: [No disponible: error al armar este bloque (${err && err.message ? err.message : 'error desconocido'})]`; }
+}
+
 export function stormSection(s, index) {
   const feats = (s.points && s.points.features) || [];
   const p0 = feats.map(f => f.properties).find(p => Number(p.tau) === 0) || null;
   const gustKt = p0 && Number(p0.gust) > 0 && Number(p0.gust) < 9999 ? Number(p0.gust) : null;
-  const cls = s.classification === 'HU' ? catLabel(s.intensityKt) : (CLASS_LABELS[s.classification] || catLabel(s.intensityKt));
+  const cls = Number.isFinite(s.intensityKt) ? (s.classification === 'HU' ? catLabel(s.intensityKt) : (CLASS_LABELS[s.classification] || catLabel(s.intensityKt))) : (CLASS_LABELS[s.classification] || s.classification || 'no disponible');
   const L = [];
   L.push(`${index + 1}. ${s.name} (${s.id.toUpperCase()})`);
   L.push(`   Tipo/categoría: ${cls}`);
-  L.push(`   Vientos sostenidos: ${kmh(s.intensityKt)} km/h (${s.intensityKt} kt)`);
+  const hayViento = Number.isFinite(s.intensityKt), hayPos = Number.isFinite(s.lat) && Number.isFinite(s.lon);
+  L.push(`   Vientos sostenidos: ${hayViento ? `${kmh(s.intensityKt)} km/h (${s.intensityKt} kt)` : 'no disponible'}`);
   L.push(`   Rachas: ${gustKt ? `${kmh(gustKt)} km/h (${gustKt} kt)` : 'no disponible'}`);
   L.push(`   Presión mínima: ${Number.isFinite(s.pressureMb) ? s.pressureMb + ' hPa' : 'no disponible'}`);
-  L.push(`   Ubicación: ${fmtLat(s.lat)} ${fmtLon(s.lon)} (${s.lat.toFixed(1)}, ${s.lon.toFixed(1)})`);
+  L.push(`   Ubicación: ${hayPos ? `${fmtLat(s.lat)} ${fmtLon(s.lon)} (${s.lat.toFixed(1)}, ${s.lon.toFixed(1)})` : 'no disponible'}`);
 
-  const dist = Object.entries(PORTS).map(([region, ports]) => {
+  const dist = hayPos ? Object.entries(PORTS).map(([region, ports]) => {
     const n = nearest(s.lat, s.lon, ports);
     return `${region}: ${fmtKm(n.d)} (${n.name})`;
-  });
-  L.push(`   Distancia a puertos de referencia (no a la línea de costa exacta): ${dist.join('; ')}`);
+  }) : [];
+  L.push(`   Distancia a puertos de referencia (no a la línea de costa exacta): ${dist.length ? dist.join('; ') : 'no disponible (sin posición)'}`);
 
-  L.push(`   Desplazamiento: hacia el ${dir16(s.movementDir)} (${s.movementDir}°) a ${kmh(s.movementSpeedKt)} km/h (${s.movementSpeedKt} kt)`);
-  L.push(`   Último aviso del NHC: ${fmtFull(new Date(s.lastUpdate))}`);
+  L.push(`   Desplazamiento: ${Number.isFinite(s.movementDir) && Number.isFinite(s.movementSpeedKt) ? `hacia el ${dir16(s.movementDir)} (${s.movementDir}°) a ${kmh(s.movementSpeedKt)} km/h (${s.movementSpeedKt} kt)` : 'no disponible (o casi estacionario)'}`);
+  L.push(`   Último aviso del NHC: ${avisoNhcTxt(s)}`);
 
   const ww = new Set(((s.warnings && s.warnings.features) || []).map(f => f.properties && f.properties.tcww).filter(t => WW[t]));
   L.push(`   Avisos/vigilancias costeras vigentes: ${ww.size ? Array.from(ww).map(t => WW[t]).join(', ') : 'ninguno'}`);
@@ -217,7 +239,7 @@ export async function buildResumenCiclones() {
   } else {
     parts.push(`${stormsR.value.storms.length} sistema(s) activo(s) en el Pacífico (ordenados por intensidad):`);
     parts.push('');
-    parts.push(stormsR.value.storms.map(stormSection).join('\n\n'));
+    parts.push(stormsR.value.storms.map((s, i) => stormSectionSegura(s, i)).join('\n\n'));
   }
   parts.push('');
 

@@ -335,7 +335,9 @@ async function respondResumenPronostico(req, res) {
     res.status(200).send(text);
   } catch (err) {
     res.setHeader('Cache-Control', 'no-store');
-    res.status(502).send(`No se pudo generar el resumen del pronóstico. Motivo: ${err.message || 'error desconocido'}`);
+    // Nunca se responde con un error de servidor vacío: se devuelve texto que explica qué falló (y no se guarda en caché).
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.status(200).send(`RESUMEN DE DATOS PARA EL PRONÓSTICO GENERAL DE LA MAÑANA — SONORA\n\n[ERROR INTERNO: no se pudo armar el resumen. Motivo: ${err && err.message ? err.message : 'error desconocido'}.]\nVuelve a intentar con otro segmento final en la URL; si persiste, revisa los registros (logs) de Vercel.`);
   }
 }
 

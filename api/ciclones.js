@@ -57,6 +57,8 @@ async function loadStorm(storm, ids) {
     movementDir: storm.movementDir,
     movementSpeedKt: storm.movementSpeed,
     lastUpdate: storm.lastUpdate,
+    // Número, hora nominal y hora de publicación del último aviso público (el NHC lo sube unos minutos antes de su hora nominal).
+    advisory: storm.publicAdvisory ? { num: storm.publicAdvisory.advNum || null, issuance: storm.publicAdvisory.issuance || null, publicado: storm.publicAdvisory.fileUpdateTime || null } : null,
     links: {
       publicAdvisory: storm.publicAdvisory && storm.publicAdvisory.url,
       forecastAdvisory: storm.forecastAdvisory && storm.forecastAdvisory.url,

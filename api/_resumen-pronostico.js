@@ -5,7 +5,7 @@ import { loadLluviaDiaria } from './_lluvia.js';
 import { loadSmnTextos, loadFrenteEstado } from './_frente-data.js';
 import { calcularRegiones, compararModelos, analizarSmn, frasesDescenso, tendenciaTxt, vigenciaSmn, fechaLocal, UMBRALES } from './_pronostico-data.js';
 import { loadPacificStorms, loadOutlookData } from './ciclones.js';
-import { PORTS, nearest, stormSection, bboxOf, esAreaGlobal, fmtLat, fmtLon, fmtKm } from './resumen-ciclones.js';
+import { PORTS, nearest, stormSectionSegura as stormSection, bboxOf, esAreaGlobal, fmtLat, fmtLon, fmtKm } from './resumen-ciclones.js';
 import { loadAzAlerts, alertasSection, avanceTexto, horaSonora, failure } from './resumen-frio.js';
 
 const TZ = 'America/Hermosillo';
@@ -194,8 +194,10 @@ function seccionCiclones(stormsR, outlookR) {
       // Se reutiliza el bloque de /api/resumen-ciclones y se corta antes de la lista de trayectoria.
       const bloque = stormSection(s, i).split('\n').filter(l => !/^ {3}(Trayectoria|Posiciones)|^ {5}\+/.test(l));
       L.push(bloque.join('\n'));
-      const n = nearest(s.lat, s.lon, PORTS['Sonora']);
-      L.push(`   Distancia mínima a Sonora: ${fmtKm(n.d)} (hasta ${n.name}, punto de referencia de la costa; no es la línea de costa exacta)`);
+      if (Number.isFinite(s.lat) && Number.isFinite(s.lon)) {
+        const n = nearest(s.lat, s.lon, PORTS['Sonora']);
+        L.push(`   Distancia mínima a Sonora: ${fmtKm(n.d)} (hasta ${n.name}, punto de referencia de la costa; no es la línea de costa exacta)`);
+      } else L.push('   Distancia mínima a Sonora: no disponible (el NHC no entregó la posición)');
     });
   }
   L.push('');
@@ -225,85 +227,116 @@ function conPlazo(promesa, ms = 30000) {
 }
 
 // ---------- armado ----------
+// Cada sección se arma por separado: si una falla por un dato inesperado, esa sección dice "No disponible" con el motivo
+// y el resto del resumen sale completo. El endpoint nunca debe caerse entero.
+function crearSeguro(errores) {
+  return (nombre, fn, respaldo = null) => {
+    try { return fn(); } catch (err) {
+      const m = err && err.message ? err.message : 'error desconocido';
+      errores.push(`${nombre}: ${m}`);
+      return respaldo !== null ? respaldo : `[No disponible: error interno al armar la sección "${nombre}" (${m}). El resto del resumen no se ve afectado.]`;
+    }
+  };
+}
+
 export async function buildResumenPronostico() {
   const ahora = Date.now();
+  // Todas las fuentes externas (también las de Open-Meteo) tienen un plazo: pasados 40 s se da por caída la que no responde,
+  // para contestar siempre antes del límite de 60 s de la función. Una consulta lenta sigue en segundo plano y deja su caché lista.
   const [rPron, rLluvia, rMod, rCorridas, rSmn, rFrente, rStorms, rOutlook, rAz] = await Promise.allSettled([
-    loadOpenMeteoPronostico(), loadLluviaDiaria(), loadOpenMeteoModelos(), loadCorridasModelos(),
-    conPlazo(loadSmnTextos()), conPlazo(loadFrenteEstado()), conPlazo(loadPacificStorms()), conPlazo(loadOutlookData()), conPlazo(loadAzAlerts())
+    conPlazo(loadOpenMeteoPronostico(), 40000), conPlazo(loadLluviaDiaria(), 40000), conPlazo(loadOpenMeteoModelos(), 40000), conPlazo(loadCorridasModelos(), 20000),
+    conPlazo(loadSmnTextos(), 30000), conPlazo(loadFrenteEstado({ plazoSenalesMs: 32000 }), 45000), conPlazo(loadPacificStorms(), 30000), conPlazo(loadOutlookData(), 30000), conPlazo(loadAzAlerts(), 30000)
   ]);
+  const errores = [];
+  const seguro = crearSeguro(errores);
   const corridas = rCorridas.status === 'fulfilled' ? rCorridas.value : MODELOS.map(m => ({ ...m, corrida: null, error: msg(rCorridas) }));
-  const regionesMal = validarRegiones();
-
-  const meta = metadatos({ ahora, corridas, rPron, rLluvia, rMod, rSmn, rFrente, rStorms, rOutlook, rAz, regionesMal });
+  const regionesMal = seguro('regiones', () => validarRegiones(), []);
 
   // Cálculos por región (solo si hay series horarias; si no, se dice claramente).
   let datos = null, errorDatos = null;
   if (rPron.status === 'fulfilled') {
     try { datos = calcularRegiones(rPron.value.list.map(l => l.hourly), rLluvia.status === 'fulfilled' ? rLluvia.value : null, ahora, rPron.value.list.map(l => l.elevation)); }
-    catch (err) { errorDatos = err; }
+    catch (err) { errorDatos = err; errores.push(`cálculo por región: ${err.message}`); }
   }
-  const modelos = rMod.status === 'fulfilled' ? compararModelos(rMod.value.list, fechaLocal(ahora)) : null;
+  let modelos = null, errorModelos = null;
+  if (rMod.status === 'fulfilled') {
+    try { modelos = compararModelos(rMod.value.list, fechaLocal(ahora)); }
+    catch (err) { errorModelos = err; errores.push(`comparación de modelos: ${err.message}`); }
+  }
+
+  const sSmn = seguro('SMN', () => seccionSmn(rSmn));
+  const sFrente = seguro('frente frío', () => seccionFrente(rFrente));
+  const sNws = seguro('NWS Arizona', () => seccionNws(rAz));
+  const sCiclones = seguro('ciclones', () => seccionCiclones(rStorms, rOutlook));
+
+  const bloques = [];
+  if (!datos) bloques.push(failure('los datos horarios por región de Open-Meteo', rPron.status === 'rejected' ? rPron.reason : errorDatos));
+  else {
+    bloques.push(`Definiciones: máxima = mayor temperatura horaria de hoy (00-24 h); mínima = menor temperatura entre las 18:00 de hoy y las 09:00 de mañana; viento a 10 m; "rachas ≥${UMBRALES.rachaKmh} km/h" y "máximas ≥${UMBRALES.tmaxC} °C" se cuentan por municipio. Un municipio puede aparecer en dos regiones.`, '');
+    Object.entries(datos.regiones).forEach(([nombre, r]) => bloques.push(seguro(`región ${nombre}`, () => bloqueRegion(nombre, r, modelos ? modelos[nombre] : null, rLluvia.status === 'fulfilled')), ''));
+  }
+
+  const tendencia = [];
+  if (!datos) tendencia.push(failure('las series horarias de Open-Meteo', rPron.status === 'rejected' ? rPron.reason : errorDatos));
+  else {
+    tendencia.push(`Umbral: cambios menores a ${UMBRALES.estableC} °C en el promedio de la región se consideran estables. Ayer y hoy son de Open-Meteo (mismo modelo), no observaciones.`);
+    Object.entries(datos.regiones).forEach(([nombre, r]) => tendencia.push(seguro(`tendencia ${nombre}`, () => {
+      const t = r.tendencia;
+      return `- ${nombre}: ${tendenciaTxt(t.tmaxHoyVsAyer, 'máximas hoy vs ayer')} (media ${num(t.tmaxMediaAyer)} → ${num(t.tmaxMediaHoy)} °C); ${tendenciaTxt(t.tminNocheVsPrevia, 'mínimas de esta noche vs la noche anterior')} (media ${num(t.tminMediaPrevia)} → ${num(t.tminMediaNoche)} °C); ${tendenciaTxt(t.tmaxMananaVsHoy, 'máximas de mañana vs hoy')}.`;
+    })));
+  }
+
+  const notas = seguro('notas', () => {
+    const out = [];
+    // Impactos con consenso de modelos.
+    if (modelos) {
+      const imp = [];
+      const nombres = { lluvia: `Lluvia (≥${UMBRALES.lluviaMm} mm en el día)`, tormenta: 'Tormenta eléctrica (weather_code 95-99)', rachas: null, calor: null };
+      Object.entries(modelos).forEach(([reg, m]) => ['lluvia', 'tormenta', 'rachas', 'calor'].forEach(k => {
+        if (m[k].mencionar) imp.push(`${nombres[k] || m[k].nombre} en ${reg}: ${m[k].n} de ${m[k].total} modelos (${m[k].modelos.join(', ')})`);
+      }));
+      out.push(imp.length ? 'Impactos con coincidencia de 2 o más modelos (se pueden mencionar):' : 'Ningún impacto (lluvia, tormenta eléctrica, rachas ≥50 km/h, máximas ≥40 °C) tiene coincidencia de 2 o más modelos en ninguna región: no mencionar impactos.');
+      imp.forEach(i => out.push(`  - ${i}`));
+      // El "best match" de Open-Meteo puede dar 0 mm donde ICON o ECMWF dan lluvia: se avisa para no confundirse.
+      const bm = datos ? Math.max(...Object.values(datos.regiones).map(r => (r.lluvia && r.lluvia.mm ? r.lluvia.mm.max : 0))) : null;
+      const conLluvia = Object.values(modelos).filter(m => m.lluvia.mencionar).length;
+      if (bm === 0 && conLluvia) out.push(`AVISO: el "best match" (la cifra de la página de lluvia y de /api/resumen-ciclones) da 0 mm en todo Sonora, pero ICON y/o ECMWF marcan lluvia en ${conLluvia} región(es). En esta zona el best match suele seguir al GFS; para lluvia convectiva conviene guiarse por los acumulados de cada modelo.`);
+    } else out.push(`No se pudo comparar modelos${errorModelos ? ` (${errorModelos.message})` : ''}; no hay base para afirmar impactos.`);
+    // Contraste con el SMN.
+    if (rSmn.status === 'fulfilled') {
+      const frases = frasesDescenso(rSmn.value);
+      if (frases.length && datos) {
+        const tmin = r => r.tendencia.tminNocheVsPrevia;
+        const subiendo = Object.entries(datos.regiones).filter(([, r]) => Number.isFinite(tmin(r)) && tmin(r) >= UMBRALES.estableC).map(([n, r]) => `${n} (+${tmin(r).toFixed(1)} °C)`);
+        const bajando = Object.entries(datos.regiones).filter(([, r]) => Number.isFinite(tmin(r)) && tmin(r) <= -UMBRALES.estableC).map(([n, r]) => `${n} (${tmin(r).toFixed(1)} °C)`);
+        out.push('El SMN menciona descenso de temperatura / ambiente frío en el noroeste o Sonora:');
+        frases.forEach(f => out.push(`  - "${f.texto}"`));
+        out.push(`  Contraste con los datos (mínimas de esta noche vs la anterior): mínimas subiendo en ${subiendo.length ? subiendo.join('; ') : 'ninguna región'}; bajando en ${bajando.length ? bajando.join('; ') : 'ninguna región'}.`);
+        if (subiendo.length && !bajando.length) out.push('  → Posible discrepancia: el SMN habla de descenso pero los datos de Open-Meteo no muestran mínimas bajando.');
+      }
+    }
+    return out.join('\n');
+  });
+
+  // Los metadatos van al principio pero se arman al final para poder avisar de cualquier error interno.
+  const meta = seguro('metadatos', () => metadatos({ ahora, corridas, rPron, rLluvia, rMod, rSmn, rFrente, rStorms, rOutlook, rAz, regionesMal }), { texto: '[No disponible: no se pudieron armar los metadatos]', ok: false });
+  const avisoErrores = errores.length ? `\nERRORES INTERNOS (${errores.length}): ${errores.join(' | ')}` : '';
 
   const out = [];
   out.push('RESUMEN DE DATOS PARA EL PRONÓSTICO GENERAL DE LA MAÑANA — SONORA');
   out.push(`Versión visual de frentes fríos: ${SITE}/frio.html · Lluvia: ${SITE}/municipios-lluvia.html`);
   out.push('');
-  out.push(SEP, 'METADATOS', SEP, meta.texto, '');
-
+  out.push(SEP, 'METADATOS', SEP, meta.texto + avisoErrores, '');
   out.push(SEP, 'SISTEMAS Y AVISOS OFICIALES', SEP);
-  out.push('[SMN — texto oficial]', seccionSmn(rSmn), '');
-  out.push('[Frente frío — WPC/SMN/Open-Meteo]', seccionFrente(rFrente), '');
-  out.push('[NWS — Arizona, EE. UU.]', seccionNws(rAz), '');
-
-  out.push(SEP, 'POR REGIÓN', SEP);
-  if (!datos) out.push(failure('los datos horarios por región de Open-Meteo', rPron.status === 'rejected' ? rPron.reason : errorDatos));
-  else {
-    out.push(`Definiciones: máxima = mayor temperatura horaria de hoy (00-24 h); mínima = menor temperatura entre las 18:00 de hoy y las 09:00 de mañana; viento a 10 m; "rachas ≥${UMBRALES.rachaKmh} km/h" y "máximas ≥${UMBRALES.tmaxC} °C" se cuentan por municipio. Un municipio puede aparecer en dos regiones.`, '');
-    Object.entries(datos.regiones).forEach(([nombre, r]) => out.push(bloqueRegion(nombre, r, modelos ? modelos[nombre] : null, rLluvia.status === 'fulfilled'), ''));
-  }
-
-  out.push(SEP, 'TENDENCIA (comparación con el día anterior)', SEP);
-  if (!datos) out.push(failure('las series horarias de Open-Meteo', rPron.status === 'rejected' ? rPron.reason : errorDatos));
-  else {
-    out.push(`Umbral: cambios menores a ${UMBRALES.estableC} °C en el promedio de la región se consideran estables. Ayer y hoy son de Open-Meteo (mismo modelo), no observaciones.`);
-    Object.entries(datos.regiones).forEach(([nombre, r]) => {
-      const t = r.tendencia;
-      out.push(`- ${nombre}: ${tendenciaTxt(t.tmaxHoyVsAyer, 'máximas hoy vs ayer')} (media ${num(t.tmaxMediaAyer)} → ${num(t.tmaxMediaHoy)} °C); ${tendenciaTxt(t.tminNocheVsPrevia, 'mínimas de esta noche vs la noche anterior')} (media ${num(t.tminMediaPrevia)} → ${num(t.tminMediaNoche)} °C); ${tendenciaTxt(t.tmaxMananaVsHoy, 'máximas de mañana vs hoy')}.`);
-    });
-  }
-  out.push('');
-
-  out.push(SEP, 'CICLONES TROPICALES Y ZONAS DE FORMACIÓN (PACÍFICO)', SEP, seccionCiclones(rStorms, rOutlook), '');
-
-  out.push(SEP, 'NOTAS', SEP);
-  // Impactos con consenso de modelos.
-  if (modelos) {
-    const imp = [];
-    const nombres = { lluvia: `Lluvia (≥${UMBRALES.lluviaMm} mm en el día)`, tormenta: 'Tormenta eléctrica (weather_code 95-99)', rachas: null, calor: null };
-    Object.entries(modelos).forEach(([reg, m]) => ['lluvia', 'tormenta', 'rachas', 'calor'].forEach(k => {
-      if (m[k].mencionar) imp.push(`${nombres[k] || m[k].nombre} en ${reg}: ${m[k].n} de ${m[k].total} modelos (${m[k].modelos.join(', ')})`);
-    }));
-    out.push(imp.length ? 'Impactos con coincidencia de 2 o más modelos (se pueden mencionar):' : 'Ningún impacto (lluvia, tormenta eléctrica, rachas ≥50 km/h, máximas ≥40 °C) tiene coincidencia de 2 o más modelos en ninguna región: no mencionar impactos.');
-    imp.forEach(i => out.push(`  - ${i}`));
-    // El "best match" de Open-Meteo puede dar 0 mm donde ICON o ECMWF dan lluvia: se avisa para no confundirse.
-    const bm = datos ? Math.max(...Object.values(datos.regiones).map(r => (r.lluvia && r.lluvia.mm ? r.lluvia.mm.max : 0))) : null;
-    const conLluvia = Object.values(modelos).filter(m => m.lluvia.mencionar).length;
-    if (bm === 0 && conLluvia) out.push(`AVISO: el "best match" (la cifra de la página de lluvia y de /api/resumen-ciclones) da 0 mm en todo Sonora, pero ICON y/o ECMWF marcan lluvia en ${conLluvia} región(es). En esta zona el best match suele seguir al GFS; para lluvia convectiva conviene guiarse por los acumulados de cada modelo.`);
-  } else out.push('No se pudo comparar modelos; no hay base para afirmar impactos.');
-  // Contraste con el SMN.
-  if (rSmn.status === 'fulfilled') {
-    const frases = frasesDescenso(rSmn.value);
-    if (frases.length && datos) {
-      const subiendo = Object.entries(datos.regiones).filter(([, r]) => Number.isFinite(r.tendencia.tminNocheVsPrevia) && r.tendencia.tminNocheVsPrevia >= UMBRALES.estableC).map(([n, r]) => `${n} (+${r.tendencia.tminNocheVsPrevia.toFixed(1)} °C)`);
-      const bajando = Object.entries(datos.regiones).filter(([, r]) => Number.isFinite(r.tendencia.tminNocheVsPrevia) && r.tendencia.tminNocheVsPrevia <= -UMBRALES.estableC).map(([n, r]) => `${n} (${r.tendencia.tminNocheVsPrevia.toFixed(1)} °C)`);
-      out.push('El SMN menciona descenso de temperatura / ambiente frío en el noroeste o Sonora:');
-      frases.forEach(f => out.push(`  - "${f.texto}"`));
-      out.push(`  Contraste con los datos (mínimas de esta noche vs la anterior): mínimas subiendo en ${subiendo.length ? subiendo.join('; ') : 'ninguna región'}; bajando en ${bajando.length ? bajando.join('; ') : 'ninguna región'}.`);
-      if (subiendo.length && !bajando.length) out.push('  → Posible discrepancia: el SMN habla de descenso pero los datos de Open-Meteo no muestran mínimas bajando.');
-    }
-  }
+  out.push('[SMN — texto oficial]', sSmn, '');
+  out.push('[Frente frío — WPC/SMN/Open-Meteo]', sFrente, '');
+  out.push('[NWS — Arizona, EE. UU.]', sNws, '');
+  out.push(SEP, 'POR REGIÓN', SEP, ...bloques);
+  out.push(SEP, 'TENDENCIA (comparación con el día anterior)', SEP, ...tendencia, '');
+  out.push(SEP, 'CICLONES TROPICALES Y ZONAS DE FORMACIÓN (PACÍFICO)', SEP, sCiclones, '');
+  out.push(SEP, 'NOTAS', SEP, notas);
   out.push('La comparación de modelos usa el máximo del día (00-24 h, hora de Sonora) en cualquier municipio de la región. La probabilidad por modelo es la "precipitation_probability_max" que Open-Meteo da para cada modelo; el best match de esta zona suele coincidir con la del GFS.');
   out.push('Las regiones salen de api/_regiones.js (un municipio puede estar en dos regiones). Los umbrales de modelos están en api/_pronostico-data.js.');
   out.push('No se redacta el pronóstico: son solo datos ordenados.');
-  return { text: out.join('\n'), ok: meta.ok && Boolean(datos) && Boolean(modelos) && rLluvia.status === 'fulfilled' };
+  return { text: out.join('\n'), ok: meta.ok && !errores.length && Boolean(datos) && Boolean(modelos) && rLluvia.status === 'fulfilled' };
 }

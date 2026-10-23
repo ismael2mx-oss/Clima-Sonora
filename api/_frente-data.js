@@ -631,7 +631,7 @@ function agruparEventos(candidatos) {
 
 // ---------- Estado combinado ----------
 
-export async function loadFrenteEstado({ simular = false } = {}) {
+export async function loadFrenteEstado({ simular = false, plazoSenalesMs = PLAZO_OPEN_METEO_MS } = {}) {
   const ahoraMs = Date.now();
   const ahoraStr = localHourString(ahoraMs);
   const hoy = localDateString(ahoraMs);
@@ -641,7 +641,7 @@ export async function loadFrenteEstado({ simular = false } = {}) {
   const [smnR, wpcR, senR] = await Promise.allSettled([
     withDeadline(loadSmnFrente(), DEADLINE_MS),
     withDeadline(loadWpcFrentes({ simular }), DEADLINE_MS),
-    withDeadline(loadSenales(), PLAZO_OPEN_METEO_MS)
+    withDeadline(loadSenales(), plazoSenalesMs)
   ]);
 
   const wpc = wpcR.status === 'fulfilled' ? wpcR.value : null;

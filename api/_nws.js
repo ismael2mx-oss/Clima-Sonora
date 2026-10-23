@@ -126,6 +126,24 @@ export async function loadAvisosAz() {
   return { alertas, totalAz: feats.length, otros: feats.length - alertas.length, condados: Object.values(CONDADOS).map(c => c.nombre) };
 }
 
+// Lista de zonas completa; si pasa de ~420 caracteres se muestran las zonas que caben (nunca una zona cortada a la mitad)
+// y se indica cuántas faltan ("y 5 zonas más").
+function zonasTxt(areaDesc, max = 420) {
+  const zonas = String(areaDesc || '').split(';').map(z => z.trim()).filter(Boolean);
+  if (!zonas.length) return 'no especificadas';
+  if (zonas.join('; ').length <= max) return zonas.join('; ');
+  const mostradas = [];
+  let largo = 0;
+  for (const z of zonas) {
+    const extra = (mostradas.length ? 2 : 0) + z.length;
+    if (largo + extra > max && mostradas.length) break;
+    mostradas.push(z);
+    largo += extra;
+  }
+  const faltan = zonas.length - mostradas.length;
+  return `${mostradas.join('; ')}${faltan > 0 ? ` y ${faltan} zona${faltan === 1 ? '' : 's'} más (${zonas.length} en total)` : ''}`;
+}
+
 export function textoAvisosAz(r) {
   const L = [];
   L.push(`Condados vigilados: ${Object.values(CONDADOS).map(c => c.nombre + (c.sonora.length ? '' : ' (no colinda con Sonora)')).join(', ')}. Se listan todos los tipos de aviso vigentes; horas en hora de Sonora (Arizona usa el mismo horario).`);
@@ -138,7 +156,7 @@ export function textoAvisosAz(r) {
     L.push('');
     L.push(`${i + 1}. ${a.evento} — ${TIPO_TXT[a.tipo]}; severidad ${a.severidad}${a.urgencia ? `, urgencia ${a.urgencia}` : ''}${a.emisor ? `; emite ${a.emisor}` : ''}`);
     L.push(`   Condado(s) vigilado(s) afectado(s): ${a.condados.join(', ')}`);
-    L.push(`   Zonas del aviso: ${a.zonas.length > 220 ? a.zonas.slice(0, 217) + '…' : a.zonas}`);
+    L.push(`   Zonas del aviso: ${zonasTxt(a.zonas)}`);
     L.push(`   Vigencia (hora de Sonora): ${fmtHora(a.inicio)} a ${fmtHora(a.fin)}`);
     L.push(`   Colinda con municipios de Sonora: ${a.colindaConSonora ? `SÍ — ${a.municipiosSonora.join(', ')} (aviso para el condado completo)` : a.posibleColindancia ? `NO CONFIRMADO — el aviso es por zonas del condado y puede no incluir la parte que colinda con ${a.municipiosPosibles.join(', ')}; revisa las zonas` : 'no'}`);
     L.push(`   Resumen del peligro: ${a.peligro}`);
