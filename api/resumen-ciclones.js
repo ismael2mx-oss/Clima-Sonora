@@ -89,7 +89,8 @@ export function avisoNhcTxt(s) {
   const publicado = horaOk(adv.publicado);
   if (!nominal) return 'hora no disponible';
   const num = adv.num ? `No. ${adv.num}, ` : '';
-  const pub = publicado ? `; el NHC lo publicó a las ${fmtFull(publicado)}` : '';
+  const hhmm = d => new Intl.DateTimeFormat('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TZ }).format(d);
+  const pub = publicado ? `; el NHC lo publicó a las ${hhmm(publicado)} h` : '';
   const adelantado = nominal.getTime() > Date.now() ? ' (hora nominal aún no llega: el NHC lo publica unos minutos antes)' : '';
   return `${num}hora nominal ${fmtFull(nominal)} (hora de Sonora)${pub}${adelantado}`;
 }
