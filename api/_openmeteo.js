@@ -11,7 +11,7 @@ import { MUNICIPIOS } from './_municipios.js';
 const TZ = 'America/Hermosillo';
 const BASE = 'https://api.open-meteo.com/v1/forecast';
 
-const VIGENCIA_MS = 15 * 60 * 1000;          // un resultado bueno se reutiliza 15 minutos
+const VIGENCIA_MS = 60 * 1000;               // un resultado bueno se reutiliza 1 minuto (lo justo para compartirlo dentro de una misma llamada); si falla, se usa el respaldo de hasta 6 h
 const RESPALDO_MAX_MS = 6 * 3600 * 1000;     // la última respuesta buena sirve de respaldo hasta 6 h
 const ESPERAS_MS = [5000, 15000];            // reintentos tras un error: 5 s y 15 s
 const TIMEOUT_INTENTO_MS = 15000;

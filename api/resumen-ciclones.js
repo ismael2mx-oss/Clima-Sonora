@@ -230,7 +230,7 @@ export async function buildResumenCiclones() {
 
   parts.push('RESUMEN DE CICLONES TROPICALES DEL PACÍFICO Y LLUVIA EN SONORA');
   parts.push(`Generado: ${fmtFull(now)} (hora de Sonora, UTC-7), a las ${segundosSonora(now)}`);
-  parts.push('Fuentes: NHC/NOAA (ciclones y perspectiva de formación) y Open-Meteo (lluvia). Datos con hasta 15 minutos de retraso por caché.');
+  parts.push('Fuentes: NHC/NOAA (ciclones y perspectiva de formación) y Open-Meteo (lluvia). Datos consultados al momento de generar este resumen (sin caché).');
   parts.push(`Versión interactiva con mapa, modelos y satélite: ${SITE}/ciclones.html`);
   parts.push('');
 

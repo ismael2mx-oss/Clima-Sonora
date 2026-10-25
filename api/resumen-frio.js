@@ -291,7 +291,7 @@ export async function buildResumenFrio({ simular = false } = {}) {
   if (aviso) parts.push(aviso, '');
   parts.push('RESUMEN DE FRENTES FRÍOS, HELADAS Y VIENTO EN SONORA');
   parts.push(`Generado: ${fmtFull(now)} (hora de Sonora, UTC-7), a las ${segundosSonora(now)}`);
-  parts.push('Fuentes: Servicio Meteorológico Nacional (texto oficial), WPC/NOAA (posición de frentes), Open-Meteo (temperatura, viento, presión, nieve; 72 municipios) y National Weather Service (avisos de Arizona). Datos con hasta 15 minutos de retraso por caché.');
+  parts.push('Fuentes: Servicio Meteorológico Nacional (texto oficial), WPC/NOAA (posición de frentes), Open-Meteo (temperatura, viento, presión, nieve; 72 municipios) y National Weather Service (avisos de Arizona). Datos consultados al momento de generar este resumen (sin caché).');
   parts.push(`Versión visual: ${SITE}/frio.html`);
   parts.push('');
 

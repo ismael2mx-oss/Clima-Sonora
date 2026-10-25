@@ -22,7 +22,7 @@ const BBOX = { latMin: 26, latMax: 33, lonMin: -116, lonMax: -108 };
 const MARGEN_KM = 300;
 const ENCIMA_KM = 50;
 const DEADLINE_MS = 8500;
-const CACHE_TTL_MS = 15 * 60 * 1000;
+const CACHE_TTL_MS = 60 * 1000;             // SMN, WPC y archivo de IEM: 1 minuto, para que cada llamada lea datos al momento
 
 // ---------- utilidades ----------
 
