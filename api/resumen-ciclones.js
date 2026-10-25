@@ -6,6 +6,8 @@ import { MUNICIPIOS } from './_municipios.js';
 
 const TZ = 'America/Hermosillo';
 const SITE = 'https://clima-sonora-6fne.vercel.app';
+// Estos resúmenes nunca se guardan en caché (ni en Vercel ni en el cliente): cada llamada se genera al momento.
+export const NO_CACHE = 'no-store, max-age=0';
 
 export const PORTS = {
   'Sonora': [['Puerto Peñasco', 31.32, -113.54], ['Bahía Kino', 28.83, -111.94], ['Guaymas', 27.92, -110.90], ['Yavaros', 26.70, -109.52]],
@@ -275,9 +277,10 @@ export default async function handler(req, res) {
   try {
     const text = await buildResumenCiclones();
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.setHeader('Cache-Control', /\[(No disponible|Datos de Open-Meteo)/.test(text) ? 'no-store' : 's-maxage=900, stale-while-revalidate=300');
+    res.setHeader('Cache-Control', NO_CACHE);
     res.status(200).send(text);
   } catch (err) {
+    res.setHeader('Cache-Control', NO_CACHE);
     res.status(502).send(`No se pudo generar el resumen de ciclones. Motivo: ${err.message || 'error desconocido'}`);
   }
 }

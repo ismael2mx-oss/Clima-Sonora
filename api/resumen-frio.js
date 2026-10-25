@@ -4,6 +4,8 @@ import { loadAvisosAz, textoAvisosAz } from './_nws.js';
 
 const TZ = 'America/Hermosillo';
 const SITE = 'https://clima-sonora-6fne.vercel.app';
+// Estos resúmenes nunca se guardan en caché (ni en Vercel ni en el cliente): cada llamada se genera al momento.
+const NO_CACHE = 'no-store, max-age=0';
 const DROP_UMBRAL = 8; // °C, caída día a día para considerarse descenso fuerte de temperatura
 const GUST_TOLVANERA = 50; // km/h
 const RAIN_PROB_TOLVANERA = 30; // %, debajo de esto con racha fuerte se considera tolvanera
@@ -331,10 +333,10 @@ async function respondResumenPronostico(req, res) {
     const { text, ok } = await buildResumenPronostico();
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     // Con una fuente caída o datos guardados la respuesta no se guarda en caché.
-    res.setHeader('Cache-Control', ok ? 's-maxage=900, stale-while-revalidate=300' : 'no-store');
+    res.setHeader('Cache-Control', NO_CACHE);
     res.status(200).send(text);
   } catch (err) {
-    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Cache-Control', NO_CACHE);
     // Nunca se responde con un error de servidor vacío: se devuelve texto que explica qué falló (y no se guarda en caché).
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.status(200).send(`RESUMEN DE DATOS PARA EL PRONÓSTICO GENERAL DE LA MAÑANA — SONORA\n\n[ERROR INTERNO: no se pudo armar el resumen. Motivo: ${err && err.message ? err.message : 'error desconocido'}.]\nVuelve a intentar con otro segmento final en la URL; si persiste, revisa los registros (logs) de Vercel.`);
@@ -348,10 +350,10 @@ export async function respondResumenFrio(req, res) {
     const { text, ok } = await buildResumenFrio({ simular });
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     // Si alguna fuente falló (o es una simulación), la respuesta no se guarda en caché.
-    res.setHeader('Cache-Control', ok && !simular ? 's-maxage=900, stale-while-revalidate=300' : 'no-store');
+    res.setHeader('Cache-Control', NO_CACHE);
     res.status(200).send(text);
   } catch (err) {
-    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Cache-Control', NO_CACHE);
     res.status(502).send(`No se pudo generar el resumen de frío. Motivo: ${err.message || 'error desconocido'}`);
   }
 }
