@@ -6,6 +6,7 @@ const TZ = 'America/Hermosillo';
 const SITE = 'https://clima-sonora-6fne.vercel.app';
 // Estos resúmenes nunca se guardan en caché (ni en Vercel ni en el cliente): cada llamada se genera al momento.
 const NO_CACHE = 'no-store, max-age=0';
+const segundosSonora = d => new Intl.DateTimeFormat('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'America/Hermosillo' }).format(d) + ' h';
 const DROP_UMBRAL = 8; // °C, caída día a día para considerarse descenso fuerte de temperatura
 const GUST_TOLVANERA = 50; // km/h
 const RAIN_PROB_TOLVANERA = 30; // %, debajo de esto con racha fuerte se considera tolvanera
@@ -289,7 +290,7 @@ export async function buildResumenFrio({ simular = false } = {}) {
   const aviso = avisoDatosGuardados(estadoR.status === 'fulfilled' ? estadoR.value : null, frioR.status === 'fulfilled' ? frioR.value : null);
   if (aviso) parts.push(aviso, '');
   parts.push('RESUMEN DE FRENTES FRÍOS, HELADAS Y VIENTO EN SONORA');
-  parts.push(`Generado: ${fmtFull(now)} (hora de Sonora, UTC-7)`);
+  parts.push(`Generado: ${fmtFull(now)} (hora de Sonora, UTC-7), a las ${segundosSonora(now)}`);
   parts.push('Fuentes: Servicio Meteorológico Nacional (texto oficial), WPC/NOAA (posición de frentes), Open-Meteo (temperatura, viento, presión, nieve; 72 municipios) y National Weather Service (avisos de Arizona). Datos con hasta 15 minutos de retraso por caché.');
   parts.push(`Versión visual: ${SITE}/frio.html`);
   parts.push('');

@@ -8,6 +8,8 @@ const TZ = 'America/Hermosillo';
 const SITE = 'https://clima-sonora-6fne.vercel.app';
 // Estos resúmenes nunca se guardan en caché (ni en Vercel ni en el cliente): cada llamada se genera al momento.
 export const NO_CACHE = 'no-store, max-age=0';
+// Hora con segundos (hora de Sonora) para ver que cada llamada se generó al momento.
+export const segundosSonora = d => new Intl.DateTimeFormat('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'America/Hermosillo' }).format(d) + ' h';
 
 export const PORTS = {
   'Sonora': [['Puerto Peñasco', 31.32, -113.54], ['Bahía Kino', 28.83, -111.94], ['Guaymas', 27.92, -110.90], ['Yavaros', 26.70, -109.52]],
@@ -227,7 +229,7 @@ export async function buildResumenCiclones() {
   const now = new Date();
 
   parts.push('RESUMEN DE CICLONES TROPICALES DEL PACÍFICO Y LLUVIA EN SONORA');
-  parts.push(`Generado: ${fmtFull(now)} (hora de Sonora, UTC-7)`);
+  parts.push(`Generado: ${fmtFull(now)} (hora de Sonora, UTC-7), a las ${segundosSonora(now)}`);
   parts.push('Fuentes: NHC/NOAA (ciclones y perspectiva de formación) y Open-Meteo (lluvia). Datos con hasta 15 minutos de retraso por caché.');
   parts.push(`Versión interactiva con mapa, modelos y satélite: ${SITE}/ciclones.html`);
   parts.push('');

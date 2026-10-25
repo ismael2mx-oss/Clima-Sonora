@@ -5,7 +5,7 @@ import { loadLluviaDiaria } from './_lluvia.js';
 import { loadSmnTextos, loadFrenteEstado } from './_frente-data.js';
 import { calcularRegiones, compararModelos, analizarSmn, frasesDescenso, tendenciaTxt, vigenciaSmn, fechaLocal, UMBRALES } from './_pronostico-data.js';
 import { loadPacificStorms, loadOutlookData } from './ciclones.js';
-import { PORTS, nearest, stormSectionSegura as stormSection, bboxOf, esAreaGlobal, fmtLat, fmtLon, fmtKm } from './resumen-ciclones.js';
+import { segundosSonora, PORTS, nearest, stormSectionSegura as stormSection, bboxOf, esAreaGlobal, fmtLat, fmtLon, fmtKm } from './resumen-ciclones.js';
 import { loadAzAlerts, alertasSection, avanceTexto, horaSonora, failure } from './resumen-frio.js';
 
 const TZ = 'America/Hermosillo';
@@ -32,7 +32,7 @@ function estadoOpenMeteo(r, ahora) {
 
 function metadatos({ ahora, corridas, rPron, rLluvia, rMod, rSmn, rFrente, rStorms, rOutlook, rAz, regionesMal }) {
   const L = [];
-  L.push(`Generado: ${cap(fmtDia.format(new Date(ahora)))} h (hora de Sonora, UTC-7).`);
+  L.push(`Generado: ${cap(fmtDia.format(new Date(ahora)))} h (hora de Sonora, UTC-7), a las ${segundosSonora(new Date(ahora))}.`);
   const hoy = new Intl.DateTimeFormat('es-MX', { weekday: 'long', day: 'numeric', month: 'long', timeZone: TZ }).format(new Date(ahora));
   L.push(`Día analizado: hoy ${hoy}, día completo de 00:00 a 24:00 h hora de Sonora (la lluvia diaria es del día completo, no de las horas que quedan).`);
   L.push('Modelos de Open-Meteo y corrida usada (hora de inicialización del modelo):');
