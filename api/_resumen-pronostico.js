@@ -6,6 +6,7 @@ import { loadSmnTextos, loadFrenteEstado } from './_frente-data.js';
 import { calcularRegiones, compararModelos, analizarSmn, frasesDescenso, tendenciaTxt, vigenciaSmn, fechaLocal, UMBRALES } from './_pronostico-data.js';
 import { loadPacificStorms, loadOutlookData } from './ciclones.js';
 import { segundosSonora, PORTS, nearest, stormSectionSegura as stormSection, bboxOf, esAreaGlobal, fmtLat, fmtLon, fmtKm } from './resumen-ciclones.js';
+import { lineasVerificacionPorRegion } from './_verif-calc.js';
 import { loadAzAlerts, alertasSection, avanceTexto, horaSonora, failure } from './resumen-frio.js';
 
 const TZ = 'America/Hermosillo';
@@ -139,7 +140,7 @@ function seccionNws(azR) {
 }
 
 // ---------- por región ----------
-function bloqueRegion(nombre, r, modelos, hayLluvia) {
+function bloqueRegion(nombre, r, modelos, hayLluvia, verificacion = null) {
   const L = [];
   const lista = r.municipios.length > 12 ? `${r.municipios.slice(0, 12).join(', ')}, … (${r.n})` : r.municipios.join(', ');
   L.push(`--- ${nombre} (${r.n} municipios: ${lista}) ---`);
@@ -180,6 +181,7 @@ function bloqueRegion(nombre, r, modelos, hayLluvia) {
     L.push(`Confianza de modelos en rachas y calor (cuántos de ICON, GFS y ECMWF tienen al menos un municipio de la región sobre el umbral; solo se menciona un impacto si coinciden 2 o más):`);
     [modelos.rachas, modelos.calor].forEach(m => L.push(`  - ${m.nombre}: ${m.total ? `${m.n} de ${m.total} modelos${m.modelos.length ? ` (${m.modelos.join(', ')})` : ''}` : 'sin datos'} → ${m.veredicto}`));
   }
+  if (verificacion) L.push(verificacion);
   return L.join('\n');
 }
 
@@ -251,6 +253,9 @@ export async function buildResumenPronostico() {
   const seguro = crearSeguro(errores);
   const corridas = rCorridas.status === 'fulfilled' ? rCorridas.value : MODELOS.map(m => ({ ...m, corrida: null, error: msg(rCorridas) }));
   const regionesMal = seguro('regiones', () => validarRegiones(), []);
+  // Una línea por región con el sesgo conocido y el modelo más confiable (solo con 7 días o más verificados; si no hay base de datos, se omite).
+  let verificacion = null;
+  try { verificacion = await conPlazo(lineasVerificacionPorRegion(), 12000); } catch (err) { errores.push(`verificación: ${err.message}`); }
 
   // Cálculos por región (solo si hay series horarias; si no, se dice claramente).
   let datos = null, errorDatos = null;
@@ -273,7 +278,7 @@ export async function buildResumenPronostico() {
   if (!datos) bloques.push(failure('los datos horarios por región de Open-Meteo', rPron.status === 'rejected' ? rPron.reason : errorDatos));
   else {
     bloques.push(`Definiciones: máxima = mayor temperatura horaria de hoy (00-24 h); mínima = menor temperatura entre las 18:00 de hoy y las 09:00 de mañana; viento a 10 m; "rachas ≥${UMBRALES.rachaKmh} km/h" y "máximas ≥${UMBRALES.tmaxC} °C" se cuentan por municipio. Un municipio puede aparecer en dos regiones.`, '');
-    Object.entries(datos.regiones).forEach(([nombre, r]) => bloques.push(seguro(`región ${nombre}`, () => bloqueRegion(nombre, r, modelos ? modelos[nombre] : null, rLluvia.status === 'fulfilled')), ''));
+    Object.entries(datos.regiones).forEach(([nombre, r]) => bloques.push(seguro(`región ${nombre}`, () => bloqueRegion(nombre, r, modelos ? modelos[nombre] : null, rLluvia.status === 'fulfilled', verificacion ? verificacion[nombre] : null)), ''));
   }
 
   const tendencia = [];

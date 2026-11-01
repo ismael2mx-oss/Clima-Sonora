@@ -1,0 +1,85 @@
+name: Verificación diaria de pronósticos
+
+# Sonora no usa horario de verano: UTC-7 todo el año.
+#   05:30 h Sonora = 12:30 UTC  -> guarda el pronóstico de hoy y de mañana
+#   10:00 h Sonora = 17:00 UTC  -> guarda las observaciones del día anterior
+# Necesita el secreto CRON_SECRET (el mismo valor que la variable CRON_SECRET en Vercel).
+on:
+  schedule:
+    - cron: '30 12 * * *'
+    - cron: '0 17 * * *'
+  workflow_dispatch:
+    inputs:
+      tarea:
+        description: 'Tarea a ejecutar ahora'
+        type: choice
+        options:
+          - pronostico
+          - observaciones
+          - historico
+        default: pronostico
+      parametros:
+        description: 'Parámetros opcionales de la URL (ej. dias=75, fecha=2026-11-01, forzar=1)'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verificacion
+  cancel-in-progress: false
+
+jobs:
+  ejecutar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SITE: https://clima-sonora-6fne.vercel.app
+    steps:
+      - name: Elegir la tarea
+        id: tarea
+        env:
+          EVENTO: ${{ github.event_name }}
+          HORARIO: ${{ github.event.schedule }}
+          TAREA_ENTRADA: ${{ github.event.inputs.tarea }}
+          PARAMETROS_ENTRADA: ${{ github.event.inputs.parametros }}
+        run: |
+          if [ "$EVENTO" = "workflow_dispatch" ]; then
+            NOMBRE="$TAREA_ENTRADA"; PARAMETROS="$PARAMETROS_ENTRADA"
+          elif [ "$HORARIO" = "30 12 * * *" ]; then
+            NOMBRE="pronostico"; PARAMETROS=""
+          else
+            NOMBRE="observaciones"; PARAMETROS=""
+          fi
+          case "$NOMBRE" in pronostico|observaciones|historico) ;; *) echo "::error::Tarea no válida"; exit 1;; esac
+          if ! printf '%s' "$PARAMETROS" | grep -Eq '^[A-Za-z0-9=&_.-]*$'; then echo "::error::Parámetros no válidos"; exit 1; fi
+          echo "nombre=$NOMBRE" >> "$GITHUB_OUTPUT"
+          echo "parametros=$PARAMETROS" >> "$GITHUB_OUTPUT"
+
+      - name: Verificar el secreto
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::Falta el secreto CRON_SECRET en GitHub (Settings > Secrets and variables > Actions)."
+            exit 1
+          fi
+
+      - name: Ejecutar ${{ steps.tarea.outputs.nombre }}
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          TAREA: ${{ steps.tarea.outputs.nombre }}
+          PARAMETROS: ${{ steps.tarea.outputs.parametros }}
+        run: |
+          URL="$SITE/api/cron/$TAREA"
+          if [ -n "$PARAMETROS" ]; then URL="$URL?$PARAMETROS"; fi
+          echo "Llamando a $URL"
+          # Reintenta si Vercel o una fuente externa fallan un momento; guardar dos veces el mismo día es seguro
+          # (el pronóstico conserva la primera copia del día y las observaciones se actualizan).
+          curl --silent --show-error --fail-with-body --retry 3 --retry-delay 30 --retry-all-errors --max-time 150 \
+            -H "Authorization: Bearer $CRON_SECRET" "$URL" | tee respuesta.json
+          echo
+          if grep -q '"estado":"parcial"' respuesta.json; then
+            echo "::warning::La tarea terminó de forma parcial: revisa 'errores' en la respuesta."
+          fi

@@ -344,8 +344,43 @@ async function respondResumenPronostico(req, res) {
   }
 }
 
+// Verificación de pronósticos (texto) y tareas automáticas. También entran por esta función por el límite de 12 de Vercel Hobby:
+// /api/verificacion y /api/cron/<tarea> son reescrituras de vercel.json (?tipo=verificacion, ?tipo=cron-pronostico, etc.).
+async function respondVerificacion(req, res) {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', NO_CACHE);
+  try {
+    const { textoVerificacion } = await import('./_verif-calc.js');
+    res.status(200).send(await textoVerificacion({ muestra: String(req.query?.muestra || '') === '1' }));
+  } catch (err) {
+    res.status(200).send(`VERIFICACIÓN DE PRONÓSTICOS — SONORA\n\n[No disponible: error al armar el reporte: ${err && err.message ? err.message : 'error desconocido'}]`);
+  }
+}
+
+async function respondCron(req, res, tarea) {
+  res.setHeader('Cache-Control', NO_CACHE);
+  try {
+    const cron = await import('./_verif-cron.js');
+    const aut = cron.autorizacion(req);
+    if (!aut.ok) { res.status(aut.codigo).json({ estado: 'rechazado', mensaje: aut.mensaje }); return; }
+    const q = req.query || {};
+    let r;
+    if (tarea === 'pronostico') r = await cron.tareaPronostico({ forzar: String(q.forzar || '') === '1' });
+    else if (tarea === 'observaciones') r = await cron.tareaObservaciones({ fecha: q.fecha ? String(q.fecha) : undefined });
+    else if (tarea === 'historico') r = await cron.tareaHistorico({ dias: q.dias ? Number(q.dias) : undefined });
+    else { res.status(404).json({ estado: 'desconocida', mensaje: `Tarea desconocida: ${tarea}` }); return; }
+    // Un error total devuelve 500 para que GitHub Actions marque la ejecución como fallida y avise por correo.
+    res.status(r.estado === 'error' ? 500 : 200).json(r);
+  } catch (err) {
+    res.status(500).json({ estado: 'error', mensaje: err && err.message ? err.message : 'error desconocido' });
+  }
+}
+
 export async function respondResumenFrio(req, res) {
-  if (String(req.query?.tipo || '') === 'pronostico') return respondResumenPronostico(req, res);
+  const tipo = String(req.query?.tipo || '');
+  if (tipo === 'pronostico') return respondResumenPronostico(req, res);
+  if (tipo === 'verificacion') return respondVerificacion(req, res);
+  if (tipo.startsWith('cron-')) return respondCron(req, res, tipo.slice(5));
   try {
     const simular = String(req.query?.simular || '') === '1';
     const { text, ok } = await buildResumenFrio({ simular });

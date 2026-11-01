@@ -1,11 +1,43 @@
 {
   "functions": {
-    "api/sonora-frio.js": { "maxDuration": 60 },
-    "api/resumen-frio.js": { "maxDuration": 60 },
-    "api/resumen-frio/*.js": { "maxDuration": 60 }
+    "api/sonora-frio.js": {
+      "maxDuration": 60
+    },
+    "api/resumen-frio.js": {
+      "maxDuration": 60
+    },
+    "api/resumen-frio/*.js": {
+      "maxDuration": 60
+    }
   },
   "rewrites": [
-    { "source": "/api/resumen-pronostico", "destination": "/api/resumen-frio?tipo=pronostico" },
-    { "source": "/api/resumen-pronostico/:slug*", "destination": "/api/resumen-frio?tipo=pronostico" }
+    {
+      "source": "/api/resumen-pronostico",
+      "destination": "/api/resumen-frio?tipo=pronostico"
+    },
+    {
+      "source": "/api/resumen-pronostico/:slug*",
+      "destination": "/api/resumen-frio?tipo=pronostico"
+    },
+    {
+      "source": "/api/verificacion",
+      "destination": "/api/resumen-frio?tipo=verificacion"
+    },
+    {
+      "source": "/api/verificacion/:slug*",
+      "destination": "/api/resumen-frio?tipo=verificacion"
+    },
+    {
+      "source": "/api/cron/pronostico",
+      "destination": "/api/resumen-frio?tipo=cron-pronostico"
+    },
+    {
+      "source": "/api/cron/observaciones",
+      "destination": "/api/resumen-frio?tipo=cron-observaciones"
+    },
+    {
+      "source": "/api/cron/historico",
+      "destination": "/api/resumen-frio?tipo=cron-historico"
+    }
   ]
 }

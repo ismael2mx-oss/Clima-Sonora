@@ -134,6 +134,12 @@ export const loadOpenMeteoModelos = crearCargador(
   l => tieneArreglos(l, 'daily') && tieneArreglos(l, 'hourly')
 );
 
+// Para la verificación: lo que pronostican hoy y mañana ICON, GFS, ECMWF y el best match en los 72 municipios.
+export const loadOpenMeteoVerificacion = crearCargador(
+  () => `${BASE}?${coords()}&models=${[...MODELOS.map(m => m.id), 'best_match'].join(',')}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_gusts_10m_max&timezone=${TZ}&forecast_days=2`,
+  l => tieneArreglos(l, 'daily')
+);
+
 // Corrida más reciente de cada modelo (hora de inicialización, UTC). Si no se puede leer, devuelve null para ese modelo.
 export async function loadCorridasModelos() {
   return Promise.all(MODELOS.map(async m => {
