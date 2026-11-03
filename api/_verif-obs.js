@@ -35,7 +35,8 @@ const IEM_DAILY = 'https://mesonet.agron.iastate.edu/cgi-bin/request/daily.py';
 const KT_A_KMH = 1.852;
 const F_A_C = f => (f - 32) / 1.8;
 
-async function pedirTexto(url, intentos = 3, timeoutMs = 25000) {
+// IEM limita las peticiones simultáneas (responde 429): se reintenta con esperas crecientes (4, 8, 12 s) cuando eso pasa.
+async function pedirTexto(url, intentos = 4, timeoutMs = 25000) {
   let ultimo;
   for (let i = 0; i < intentos; i++) {
     const ctrl = new AbortController();
@@ -46,7 +47,7 @@ async function pedirTexto(url, intentos = 3, timeoutMs = 25000) {
       return await res.text();
     } catch (err) {
       ultimo = err.name === 'AbortError' ? new Error('tiempo de espera agotado') : err;
-      if (i < intentos - 1) await new Promise(r => setTimeout(r, 1500 * (i + 1)));
+      if (i < intentos - 1) await new Promise(r => setTimeout(r, (/429|503/.test(String(ultimo && ultimo.message)) ? 4000 : 1500) * (i + 1)));
     } finally { clearTimeout(t); }
   }
   throw ultimo;

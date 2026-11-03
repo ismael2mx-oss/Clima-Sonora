@@ -50,7 +50,12 @@ export async function tareaPronostico({ forzar = false } = {}) {
 async function guardarObservaciones(desde, hasta, res) {
   const guardado = new Date().toISOString();
   const todas = [];
-  const resultados = await Promise.allSettled(ESTACIONES.map(e => observacionesEstacion(e, desde, hasta)));
+  // Una estación a la vez (con una pausa corta): pedirlas todas juntas hace que IEM responda 429.
+  const resultados = [];
+  for (const e of ESTACIONES) {
+    try { resultados.push({ status: 'fulfilled', value: await observacionesEstacion(e, desde, hasta) }); } catch (err) { resultados.push({ status: 'rejected', reason: err }); }
+    await new Promise(r => setTimeout(r, 400));
+  }
   resultados.forEach((r, i) => {
     if (r.status === 'fulfilled') { todas.push(...r.value.map(o => filaObs(o, guardado))); (res.estaciones ||= {})[ESTACIONES[i].id] = r.value.map(o => `${o.fecha}:${o.horas_reportadas}h[máx ${o.valida_max ? 'ok' : 'no'} (${o.horas_ventana_max} h), mín ${o.valida_min ? 'ok' : 'no'} (${o.horas_ventana_min} h)]`).join(' '); }
     else res.errores.push(`${ESTACIONES[i].id}: ${msg(r.reason)}`);
