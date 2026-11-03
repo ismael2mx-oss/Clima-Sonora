@@ -53,7 +53,8 @@ jobs:
             NOMBRE="observaciones"; PARAMETROS=""
           fi
           case "$NOMBRE" in pronostico|observaciones|historico) ;; *) echo "::error::Tarea no válida"; exit 1;; esac
-          if ! printf '%s' "$PARAMETROS" | grep -Eq '^[A-Za-z0-9=&_.-]*$'; then echo "::error::Parámetros no válidos"; exit 1; fi
+          # Solo letras, números y = & _ . - (con grep, una cadena vacía contaba como inválida)
+          if [ -n "$(printf '%s' "$PARAMETROS" | tr -d 'A-Za-z0-9=&_.-')" ]; then echo "::error::Parámetros no válidos"; exit 1; fi
           echo "nombre=$NOMBRE" >> "$GITHUB_OUTPUT"
           echo "parametros=$PARAMETROS" >> "$GITHUB_OUTPUT"
 
