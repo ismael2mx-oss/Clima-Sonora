@@ -126,7 +126,8 @@ export async function textoVerificacion({ muestra = false } = {}) {
     if (!e) return `- ${nombre}: nunca se ha ejecutado`;
     const horas = Math.round((ahora - Date.parse(e.inicio)) / 3600000);
     const viejo = horasMax && horas > horasMax ? ` — ATENCIÓN: hace ${horas} h, debería ejecutarse cada día` : '';
-    return `- ${nombre}: última ejecución ${horaSon(e.inicio)} (${e.estado})${viejo}`;
+    const estado = e.estado === 'en curso' && horas >= 1 ? 'no terminó (interrumpida o con tiempo agotado)' : e.estado;
+    return `- ${nombre}: última ejecución ${horaSon(e.inicio)} (${estado})${viejo}`;
   };
   L.push(linEj('pronostico', 'Guardado del pronóstico (05:30 h)', 26), linEj('observaciones', 'Guardado de observaciones (10:00 h)', 26), linEj('historico', 'Carga histórica (única)', null));
   L.push(`- Pronósticos guardados (a las 05:30 h): ${cnt.pron.dias} día(s) desde ${cnt.pron.desde || 'n/d'} hasta ${cnt.pron.hasta || 'n/d'} (${cnt.pron.filas} filas)`);

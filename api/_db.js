@@ -55,7 +55,7 @@ export async function asegurarEsquema() {
  * Inserta filas en lotes. columnas: nombres; filas: arreglos de valores. conflicto: lista de columnas de la llave primaria.
  * modo 'ignorar' deja intacta la fila existente (la primera que se guardó gana); 'reemplazar' la actualiza.
  */
-export async function insertarFilas(tabla, columnas, filas, conflicto, modo = 'ignorar', lote = 80) {
+export async function insertarFilas(tabla, columnas, filas, conflicto, modo = 'ignorar', lote = 400) {
   let n = 0;
   for (let i = 0; i < filas.length; i += lote) {
     const parte = filas.slice(i, i + lote);

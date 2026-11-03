@@ -5,10 +5,6 @@ name: Verificación diaria de pronósticos
 #   10:00 h Sonora = 17:00 UTC  -> guarda las observaciones del día anterior
 # Necesita el secreto CRON_SECRET (el mismo valor que la variable CRON_SECRET en Vercel).
 on:
-  # TEMPORAL: ejecuta una vez todo (carga histórica + pronóstico + observaciones) al subir este archivo. Se quita después.
-  push:
-    branches: [master]
-    paths: ['.github/workflows/verificacion.yml']
   schedule:
     - cron: '30 12 * * *'
     - cron: '0 17 * * *'
@@ -50,9 +46,7 @@ jobs:
           TAREA_ENTRADA: ${{ github.event.inputs.tarea }}
           PARAMETROS_ENTRADA: ${{ github.event.inputs.parametros }}
         run: |
-          if [ "$EVENTO" = "push" ]; then
-            NOMBRE="todo"; PARAMETROS="dias=75"
-          elif [ "$EVENTO" = "workflow_dispatch" ]; then
+          if [ "$EVENTO" = "workflow_dispatch" ]; then
             NOMBRE="$TAREA_ENTRADA"; PARAMETROS="$PARAMETROS_ENTRADA"
           elif [ "$HORARIO" = "30 12 * * *" ]; then
             NOMBRE="pronostico"; PARAMETROS=""
