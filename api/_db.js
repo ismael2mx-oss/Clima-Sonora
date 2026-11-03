@@ -34,6 +34,7 @@ const ESQUEMA = [
     fecha TEXT NOT NULL, estacion TEXT NOT NULL, municipio TEXT NOT NULL, calidad TEXT NOT NULL,
     tmax DOUBLE PRECISION, tmin DOUBLE PRECISION, lluvia_mm DOUBLE PRECISION, lluvia_evento INTEGER, racha_kmh DOUBLE PRECISION,
     horas_reportadas INTEGER NOT NULL, cobertura_ok INTEGER NOT NULL, n_reportes INTEGER, fuente TEXT, guardado_en TEXT NOT NULL,
+    horas_ventana_max INTEGER, horas_ventana_min INTEGER, valida_max INTEGER, valida_min INTEGER,
     PRIMARY KEY (fecha, estacion))`,
   // Estimación de lluvia por satélite (NASA POWER, con unos 3 días de retraso).
   `CREATE TABLE IF NOT EXISTS lluvia_satelite (
@@ -45,9 +46,19 @@ const ESQUEMA = [
     PRIMARY KEY (tarea, inicio))`
 ];
 
+// Columnas agregadas después de la primera versión (cobertura por variable): se añaden a la tabla ya existente.
+const MIGRACIONES = [
+  'ALTER TABLE observaciones ADD COLUMN IF NOT EXISTS horas_ventana_max INTEGER',
+  'ALTER TABLE observaciones ADD COLUMN IF NOT EXISTS horas_ventana_min INTEGER',
+  'ALTER TABLE observaciones ADD COLUMN IF NOT EXISTS valida_max INTEGER',
+  'ALTER TABLE observaciones ADD COLUMN IF NOT EXISTS valida_min INTEGER'
+];
+
 export async function asegurarEsquema() {
   if (esquemaListo) return;
   for (const q of ESQUEMA) await consultar(q);
+  // En una base nueva las columnas ya vienen en CREATE TABLE; si la sentencia no aplica, no pasa nada.
+  for (const q of MIGRACIONES) { try { await consultar(q); } catch (_) { /* ya existe o el motor no lo soporta */ } }
   esquemaListo = true;
 }
 

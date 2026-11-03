@@ -3,7 +3,15 @@ import { MUNICIPIOS } from './_municipios.js';
 // Observaciones reales para verificar los pronósticos. Fuente: METAR de aeropuertos, vía el archivo de IEM (Iowa State),
 // que entrega las observaciones con la hora ya en Sonora. Día = 00:00 a 24:00 hora de Sonora (UTC-7, sin horario de verano).
 
-export const MIN_HORAS_COBERTURA = 18; // un día con menos de 18 de 24 horas reportadas se marca "baja cobertura" y no cuenta
+// Regla de cobertura POR VARIABLE (hora local de Sonora; se cuentan horas del reloj con al menos un reporte):
+//  - la MÁXIMA del día cuenta si la estación reportó al menos 3 horas entre las 12:00 y las 17:59 h;
+//  - la MÍNIMA cuenta si reportó al menos 3 horas entre las 03:00 y las 08:59 h.
+// Lluvia sí/no y rachas necesitan además el día casi completo (MIN_HORAS_COBERTURA): con pocas horas, un "no llovió" no es confiable
+// (un "sí llovió" siempre cuenta).
+export const VENTANA_MAX = { desde: 12, hasta: 17 };
+export const VENTANA_MIN = { desde: 3, hasta: 8 };
+export const MIN_HORAS_VENTANA = 3;
+export const MIN_HORAS_COBERTURA = 18; // día "casi completo": para lluvia sí/no y rachas
 
 // calidad: directa (aeropuerto en Sonora, a menos de 15 km) | aproximacion (Arizona, a menos de 20 km) | aproximacion_lejana (a 26 km)
 export const ESTACIONES = [
@@ -82,6 +90,7 @@ export function resumirPorDia(obs, desde, hasta) {
     const temps = lista.map(o => o.tmpf).filter(Number.isFinite).map(F_A_C);
     const gustKt = lista.map(o => o.gust).filter(Number.isFinite);
     const horas = new Set(lista.map(o => o.valid.slice(0, 13)));
+    const horasEn = v => new Set(lista.filter(o => { const h = Number(o.valid.slice(11, 13)); return h >= v.desde && h <= v.hasta; }).map(o => o.valid.slice(0, 13))).size;
     const p01 = lista.map(o => o.p01i).filter(Number.isFinite);
     out.set(dia, {
       tmax: temps.length ? Math.max(...temps) : null,
@@ -90,6 +99,8 @@ export function resumirPorDia(obs, desde, hasta) {
       lluvia_evento: lista.some(o => hayLluvia(o.wx)) || p01.some(v => v > 0) ? 1 : 0,
       lluvia_p01_mm: p01.length ? p01.reduce((a, b) => a + b, 0) * 25.4 : null,
       horas_reportadas: horas.size,
+      horas_ventana_max: horasEn(VENTANA_MAX),
+      horas_ventana_min: horasEn(VENTANA_MIN),
       n_reportes: lista.length
     });
   }
@@ -145,6 +156,9 @@ export async function observacionesEstacion(est, desde, hasta) {
       lluvia_evento: est.red === 'AZ_ASOS' && Number.isFinite(lluviaMm) ? (lluviaMm >= 0.1 ? 1 : r.lluvia_evento) : r.lluvia_evento,
       racha_kmh: rachas.length ? Math.max(...rachas) : null,
       horas_reportadas: r.horas_reportadas, n_reportes: r.n_reportes,
+      horas_ventana_max: r.horas_ventana_max, horas_ventana_min: r.horas_ventana_min,
+      valida_max: r.horas_ventana_max >= MIN_HORAS_VENTANA ? 1 : 0,
+      valida_min: r.horas_ventana_min >= MIN_HORAS_VENTANA ? 1 : 0,
       cobertura_ok: r.horas_reportadas >= MIN_HORAS_COBERTURA ? 1 : 0,
       fuente: 'METAR (IEM)'
     });

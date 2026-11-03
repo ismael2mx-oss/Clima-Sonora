@@ -1,6 +1,6 @@
 import { consultar, asegurarEsquema, hayBaseDeDatos } from './_db.js';
 import { REGIONES } from './_regiones.js';
-import { ESTACIONES, CALIDAD_TXT, MIN_HORAS_COBERTURA, sumaDias } from './_verif-obs.js';
+import { ESTACIONES, CALIDAD_TXT, MIN_HORAS_COBERTURA, VENTANA_MAX, VENTANA_MIN, MIN_HORAS_VENTANA, sumaDias } from './_verif-obs.js';
 import { FUENTES, FUENTE_NOMBRE, fechaSonora } from './_verif-pron.js';
 
 // Comparación de lo pronosticado contra lo observado: error del día, sesgo, MAE (7 y 30 días), % de aciertos y ranking por región.
@@ -24,34 +24,54 @@ export async function cargarComparaciones(origen, desdeFecha) {
     `SELECT p.fecha_emision, p.fecha_objetivo, p.dias_adelante, p.municipio, p.fuente,
             p.tmax AS ftmax, p.tmin AS ftmin, p.lluvia_mm AS fmm, p.prob_lluvia AS fprob, p.racha_kmh AS fracha,
             o.estacion, o.calidad, o.tmax AS otmax, o.tmin AS otmin, o.lluvia_mm AS omm, o.lluvia_evento AS oevento, o.racha_kmh AS oracha,
-            o.cobertura_ok, o.horas_reportadas
+            o.cobertura_ok, o.horas_reportadas, o.horas_ventana_max, o.horas_ventana_min, o.valida_max, o.valida_min
        FROM pronosticos p JOIN observaciones o ON o.fecha = p.fecha_objetivo AND o.municipio = p.municipio
       WHERE p.origen = $1 AND p.fecha_objetivo >= $2`, [origen, desdeFecha]);
-  return filas.map(r => ({ ...r, dias_adelante: Number(r.dias_adelante), cobertura_ok: Number(r.cobertura_ok), horas_reportadas: Number(r.horas_reportadas) }));
+  const entero = v => (v === null || v === undefined ? null : Number(v));
+  return filas.map(r => {
+    const cob = Number(r.cobertura_ok);
+    return {
+      ...r, dias_adelante: Number(r.dias_adelante), cobertura_ok: cob, horas_reportadas: Number(r.horas_reportadas),
+      horas_ventana_max: entero(r.horas_ventana_max), horas_ventana_min: entero(r.horas_ventana_min),
+      // Días guardados antes de la regla por variable (aún sin reprocesar): se usa la cobertura del día completo.
+      valida_max: r.valida_max === null || r.valida_max === undefined ? cob : Number(r.valida_max),
+      valida_min: r.valida_min === null || r.valida_min === undefined ? cob : Number(r.valida_min)
+    };
+  });
 }
 
 const num = v => (v === null || v === undefined ? null : Number(v));
 const ok = v => Number.isFinite(num(v));
 
-// ---------- estadísticas de un conjunto de filas (ya sin días de baja cobertura) ----------
+// ---------- estadísticas de un conjunto de filas ----------
+// La cobertura se exige POR VARIABLE: la máxima cuenta si la estación reportó 3 horas o más entre las 12:00 y las 17:59 h; la mínima, si
+// reportó 3 o más entre las 03:00 y las 08:59 h. Rachas y lluvia sí/no piden el día casi completo (un "sí llovió" siempre cuenta).
 export function estadisticas(filas) {
-  const errs = (f, o) => filas.filter(r => ok(r[f]) && ok(r[o])).map(r => num(r[f]) - num(r[o]));
+  const errs = (f, o, valida) => filas.filter(r => valida(r) && ok(r[f]) && ok(r[o])).map(r => num(r[f]) - num(r[o]));
   const resumen = e => ({ n: e.length, sesgo: mean(e), mae: mean(e.map(Math.abs)), acierto: e.filter(x => Math.abs(x) <= UMBRAL_ACIERTO_C).length });
-  const lluvia = filas.filter(r => ok(r.fmm) && (ok(r.omm) || num(r.oevento) !== null)).map(r => {
+  const diaCasiCompleto = r => r.cobertura_ok === 1;
+  const lluvia = filas.filter(r => ok(r.fmm) && (ok(r.omm) || num(r.oevento) !== null) && (diaCasiCompleto(r) || Number(r.oevento) === 1)).map(r => {
     const obs = ok(r.omm) ? num(r.omm) >= UMBRAL_LLUVIA_MM : Number(r.oevento) === 1;
     const pron = num(r.fmm) >= UMBRAL_LLUVIA_MM;
     return { acierto: obs === pron, mmErr: ok(r.omm) ? num(r.fmm) - num(r.omm) : null };
   });
   const mmErr = lluvia.map(x => x.mmErr).filter(Number.isFinite);
   return {
-    tmax: resumen(errs('ftmax', 'otmax')), tmin: resumen(errs('ftmin', 'otmin')),
-    racha: resumen(errs('fracha', 'oracha')),
+    tmax: resumen(errs('ftmax', 'otmax', r => r.valida_max === 1)), tmin: resumen(errs('ftmin', 'otmin', r => r.valida_min === 1)),
+    racha: resumen(errs('fracha', 'oracha', diaCasiCompleto)),
     lluvia: { n: lluvia.length, aciertos: lluvia.filter(x => x.acierto).length, nMm: mmErr.length, maeMm: mean(mmErr.map(Math.abs)), sesgoMm: mean(mmErr) }
   };
 }
 
 const enVentana = (filas, hasta, dias) => { const desde = sumaDias(hasta, -(dias - 1)); return filas.filter(r => r.fecha_objetivo >= desde && r.fecha_objetivo <= hasta); };
-const conCobertura = filas => filas.filter(r => r.cobertura_ok === 1);
+const conCobertura = filas => filas; // la cobertura ya se aplica por variable dentro de estadisticas()
+// Qué variables se pudieron validar en una estación (en algún día del conjunto): "máx+mín", "solo máx", "solo mín" o "ninguna".
+const variablesValidadas = filas => {
+  const dias = pred => new Set(filas.filter(pred).map(r => r.fecha_objetivo)).size;
+  const total = dias(() => true), dmx = dias(r => r.valida_max === 1), dmn = dias(r => r.valida_min === 1);
+  const quedan = dmx && dmn >= dmx / 2 ? 'máx+mín' : dmx ? 'solo máx' : dmn ? 'solo mín' : 'ninguna';
+  return `${quedan}: máx ${dmx}/${total} d, mín ${dmn}/${total} d`;
+};
 const porFuente = (filas, fuente, lead) => filas.filter(r => r.fuente === fuente && r.dias_adelante === lead);
 
 // MAE combinado de máximas y mínimas, usado para el ranking.
@@ -61,10 +81,11 @@ export function rankingRegion(filas, region, hasta, dias, lead) {
   const munis = new Set(REGIONES[region] || []);
   const base = enVentana(conCobertura(filas), hasta, dias).filter(r => munis.has(r.municipio) && r.calidad !== 'aproximacion_lejana');
   const estaciones = [...new Set(base.map(r => r.estacion))];
+  const etiquetas = estaciones.map(id => `${id} [${variablesValidadas(base.filter(r => r.estacion === id))}]`);
   const filasR = FUENTES.map(f => { const e = estadisticas(porFuente(base, f, lead)); return { fuente: f, mae: maeCombinado(e), n: e.tmax.n + e.tmin.n, sesgoMax: e.tmax.sesgo, sesgoMin: e.tmin.sesgo }; })
     .filter(x => x.n >= 3 && Number.isFinite(x.mae)).sort((a, b) => a.mae - b.mae);
-  const dist = new Set(base.map(r => r.fecha_objetivo)).size;
-  return { ranking: filasR, estaciones, dias: dist };
+  const dist = new Set(base.filter(r => r.valida_max === 1 || r.valida_min === 1).map(r => r.fecha_objetivo)).size;
+  return { ranking: filasR, estaciones, etiquetas, dias: dist };
 }
 
 // ---------- lecturas de la base ----------
@@ -98,7 +119,7 @@ export async function lineasVerificacionPorRegion() {
     if (r.dias < 7 || !r.ranking.length) continue;
     const mejor = r.ranking[0];
     const bm = r.ranking.find(x => x.fuente === 'best_match');
-    out[region] = `Verificación (últimos ${r.dias} días con datos, ${r.estaciones.length} estación(es); aproximación donde la estación es de Arizona): modelo más confiable ${FUENTE_NOMBRE[mejor.fuente]} (error medio ${f1(mejor.mae)} °C en máx+mín, sesgo máx ${f1(mejor.sesgoMax, true)} / mín ${f1(mejor.sesgoMin, true)} °C)${bm && bm !== mejor ? `; best match: error ${f1(bm.mae)} °C, sesgo máx ${f1(bm.sesgoMax, true)} / mín ${f1(bm.sesgoMin, true)} °C` : ''}`;
+    out[region] = `Verificación (últimos ${r.dias} días con datos, ${r.etiquetas.join(", ")}; aproximación donde la estación es de Arizona): modelo más confiable ${FUENTE_NOMBRE[mejor.fuente]} (error medio ${f1(mejor.mae)} °C en máx+mín, sesgo máx ${f1(mejor.sesgoMax, true)} / mín ${f1(mejor.sesgoMin, true)} °C)${bm && bm !== mejor ? `; best match: error ${f1(bm.mae)} °C, sesgo máx ${f1(bm.sesgoMax, true)} / mín ${f1(bm.sesgoMin, true)} °C` : ''}`;
   }
   return out;
 }
@@ -134,7 +155,7 @@ export async function textoVerificacion({ muestra = false } = {}) {
   L.push(`- Observaciones guardadas: ${cnt.obs.dias} día(s) desde ${cnt.obs.desde || 'n/d'} hasta ${cnt.obs.hasta || 'n/d'}`);
   L.push(`- Histórico de corto plazo (carga inicial, se reporta aparte): ${cnt.hist.filas} filas, ${cnt.hist.desde || 'n/d'} a ${cnt.hist.hasta || 'n/d'}`);
   L.push(`- Estaciones: ${ESTACIONES.map(e => `${e.municipio} = ${e.id} (${CALIDAD_TXT[e.calidad]})`).join('; ')}`);
-  L.push(`- Un día de una estación con menos de ${MIN_HORAS_COBERTURA} de 24 horas reportadas se marca "baja cobertura" y se excluye de los cálculos.`);
+  L.push(`- Regla de cobertura POR VARIABLE (hora de Sonora): la MÁXIMA cuenta si la estación reportó al menos ${MIN_HORAS_VENTANA} horas entre las ${String(VENTANA_MAX.desde).padStart(2, '0')}:00 y las ${VENTANA_MAX.hasta}:59 h; la MÍNIMA, si reportó al menos ${MIN_HORAS_VENTANA} horas entre las ${String(VENTANA_MIN.desde).padStart(2, '0')}:00 y las ${String(VENTANA_MIN.hasta).padStart(2, '0')}:59 h. Rachas y lluvia sí/no piden al menos ${MIN_HORAS_COBERTURA} de 24 horas reportadas (un "sí llovió" siempre cuenta).`);
   L.push('');
 
   if (muestra) {
@@ -163,11 +184,22 @@ export async function textoVerificacion({ muestra = false } = {}) {
       const rows = filas.filter(r => r.fecha_objetivo === ult && r.estacion === est.id && r.dias_adelante === 0);
       const base = rows[0];
       if (!base) { L.push(`- ${est.municipio} (${est.id}, ${CALIDAD_TXT[est.calidad]}): sin datos`); continue; }
-      const cab = `- ${est.municipio} (${est.id}, ${CALIDAD_TXT[est.calidad]}; ${base.horas_reportadas} de 24 h reportadas)`;
-      if (base.cobertura_ok !== 1) { L.push(`${cab}: BAJA COBERTURA, excluida de los cálculos (observado máx ${f1(num(base.otmax))} / mín ${f1(num(base.otmin))} °C, no confiable)`); continue; }
-      const llu = ok(base.omm) ? `${f1(num(base.omm))} mm` : (Number(base.oevento) ? 'llovió (sin mm)' : 'no llovió');
-      L.push(`${cab}: observado máx ${f1(num(base.otmax))} / mín ${f1(num(base.otmin))} °C, lluvia ${llu}${ok(base.oracha) ? `, racha ${f1(num(base.oracha))} km/h` : ''}`);
-      FUENTES.forEach(f => { const r = rows.find(x => x.fuente === f); if (r) L.push(`    ${FUENTE_NOMBRE[f].padEnd(11)} máx ${f1(num(r.ftmax))} (${f1(num(r.ftmax) - num(r.otmax), true)}) · mín ${f1(num(r.ftmin))} (${f1(num(r.ftmin) - num(r.otmin), true)}) · lluvia ${f1(num(r.fmm))} mm`); });
+      const vMax = base.valida_max === 1, vMin = base.valida_min === 1;
+      const hMax = Number.isFinite(base.horas_ventana_max) ? `${base.horas_ventana_max} h entre ${VENTANA_MAX.desde}:00 y ${VENTANA_MAX.hasta}:59` : 'cobertura del día';
+      const hMin = Number.isFinite(base.horas_ventana_min) ? `${base.horas_ventana_min} h entre 0${VENTANA_MIN.desde}:00 y 0${VENTANA_MIN.hasta}:59` : 'cobertura del día';
+      const validadas = vMax && vMin ? 'VALIDADAS máxima y mínima' : vMax ? 'VALIDADA solo la máxima' : vMin ? 'VALIDADA solo la mínima' : 'NINGUNA variable validada';
+      const cab = `- ${est.municipio} (${est.id}, ${CALIDAD_TXT[est.calidad]}; ${base.horas_reportadas} de 24 h reportadas): ${validadas} [máx: ${vMax ? 'sí' : 'no'} (${hMax}); mín: ${vMin ? 'sí' : 'no'} (${hMin})]`;
+      if (!vMax && !vMin) { L.push(`${cab} — excluida de los cálculos`); continue; }
+      const llu = ok(base.omm) ? `${f1(num(base.omm))} mm` : (Number(base.oevento) ? 'llovió (sin mm)' : (base.cobertura_ok === 1 ? 'no llovió' : 'sin evento en las horas reportadas (no concluyente)'));
+      L.push(`${cab}`);
+      L.push(`    observado: máx ${vMax ? f1(num(base.otmax)) : 'sin validar (' + f1(num(base.otmax)) + ' °C no confiable)'}${vMax ? ' °C' : ''} / mín ${vMin ? f1(num(base.otmin)) : 'sin validar (' + f1(num(base.otmin)) + ' °C no confiable)'}${vMin ? ' °C' : ''}; lluvia ${llu}${ok(base.oracha) && base.cobertura_ok === 1 ? `, racha ${f1(num(base.oracha))} km/h` : ''}`);
+      FUENTES.forEach(fu => {
+        const r = rows.find(x => x.fuente === fu);
+        if (!r) return;
+        const emax = vMax ? `máx ${f1(num(r.ftmax))} (${f1(num(r.ftmax) - num(r.otmax), true)})` : `máx ${f1(num(r.ftmax))} (sin validar)`;
+        const emin = vMin ? `mín ${f1(num(r.ftmin))} (${f1(num(r.ftmin) - num(r.otmin), true)})` : `mín ${f1(num(r.ftmin))} (sin validar)`;
+        L.push(`    ${FUENTE_NOMBRE[fu].padEnd(11)} ${emax} · ${emin} · lluvia ${f1(num(r.fmm))} mm`);
+      });
     }
   }
   L.push('');
@@ -181,9 +213,9 @@ export async function textoVerificacion({ muestra = false } = {}) {
       const r = rankingRegion(filas, region, hasta, d, lead);
       t.push(`  ${nombre}, últimos ${d} d (${r.dias} día(s) con datos): ${r.ranking.length ? r.ranking.map((x, i) => `${i + 1}) ${FUENTE_NOMBRE[x.fuente]} ${f1(x.mae)}`).join(' · ') : 'sin datos suficientes'}`);
     }
-    const est = rankingRegion(filas, region, hasta, 30, 0).estaciones;
+    const etiquetasR = rankingRegion(filas, region, hasta, 30, 0).etiquetas;
     const sinEstacion = !REGIONES[region].some(m => ESTACION_DE[m] && ESTACION_DE[m].calidad !== 'aproximacion_lejana');
-    L.push(`- ${region}${sinEstacion ? ': SIN ESTACIÓN, no se puede verificar' : ` (estaciones: ${est.length ? est.join(', ') : 'sin datos aún'})`}`);
+    L.push(`- ${region}${sinEstacion ? ': SIN ESTACIÓN, no se puede verificar' : ` (estaciones: ${etiquetasR.length ? etiquetasR.join(", ") : "sin datos aún"})`}`);
     if (!sinEstacion) t.forEach(x => L.push(x));
   }
   L.push('');
@@ -258,10 +290,16 @@ export async function textoVerificacion({ muestra = false } = {}) {
   L.push('');
 
   // --- Cobertura ---
-  L.push(SEP, 'DÍAS EXCLUIDOS POR BAJA COBERTURA (últimos 30 días)', SEP);
+  L.push(SEP, 'VARIABLES VALIDADAS POR ESTACIÓN (últimos 30 días)', SEP);
   const desde30 = sumaDias(hasta, -29);
-  const obs = await consultar('SELECT estacion, COUNT(*) AS dias, SUM(CASE WHEN cobertura_ok = 1 THEN 1 ELSE 0 END) AS buenos, AVG(horas_reportadas) AS horas FROM observaciones WHERE fecha >= $1 GROUP BY estacion', [desde30]);
-  ESTACIONES.forEach(e => { const r = obs.find(x => x.estacion === e.id); L.push(r ? `- ${e.id} ${e.municipio}: ${Number(r.buenos)} de ${Number(r.dias)} días con cobertura suficiente (promedio ${Number(r.horas).toFixed(1)} h reportadas por día)${Number(r.buenos) < Number(r.dias) / 2 ? ' — casi siempre excluida' : ''}` : `- ${e.id} ${e.municipio}: sin observaciones`); });
+  const obs = await consultar('SELECT estacion, COUNT(*) AS dias, SUM(COALESCE(valida_max, cobertura_ok)) AS vmax, SUM(COALESCE(valida_min, cobertura_ok)) AS vmin, SUM(cobertura_ok) AS completos, AVG(horas_reportadas) AS horas, AVG(horas_ventana_max) AS hmax, AVG(horas_ventana_min) AS hmin FROM observaciones WHERE fecha >= $1 GROUP BY estacion', [desde30]);
+  ESTACIONES.forEach(e => {
+    const r = obs.find(x => x.estacion === e.id);
+    if (!r) { L.push(`- ${e.id} ${e.municipio}: sin observaciones`); return; }
+    const n = Number(r.dias), vmax = Number(r.vmax), vmin = Number(r.vmin);
+    const quedan = vmax / n >= 0.5 && vmin / n >= 0.5 ? 'valida máxima y mínima' : vmax / n >= 0.5 ? 'valida solo la máxima' : vmin / n >= 0.5 ? 'valida solo la mínima' : 'casi no valida nada';
+    L.push(`- ${e.id} ${e.municipio} (${CALIDAD_TXT[e.calidad]}): ${quedan} — máxima validada ${vmax} de ${n} días (prom. ${Number(r.hmax).toFixed(1)} h en la ventana ${VENTANA_MAX.desde}:00-${VENTANA_MAX.hasta}:59), mínima validada ${vmin} de ${n} (prom. ${Number(r.hmin).toFixed(1)} h en 0${VENTANA_MIN.desde}:00-0${VENTANA_MIN.hasta}:59); día casi completo (≥${MIN_HORAS_COBERTURA} h, para lluvia sí/no y rachas) ${Number(r.completos)} de ${n}; promedio ${Number(r.horas).toFixed(1)} h reportadas por día`);
+  });
   L.push('', 'Nota: no se aplica ninguna corrección automática al pronóstico; esto es solo medición (fase 1).');
   return L.join('\n');
 }
