@@ -5,7 +5,7 @@ name: Verificación diaria de pronósticos
 #   10:00 h Sonora = 17:00 UTC  -> guarda las observaciones del día anterior
 # Necesita el secreto CRON_SECRET (el mismo valor que la variable CRON_SECRET en Vercel).
 on:
-  # TEMPORAL: reprocesa las observaciones guardadas con la regla de cobertura por variable. Se quita después.
+  # TEMPORAL (segunda ejecución, ya con el código nuevo en línea): reprocesa las observaciones con la regla de cobertura por variable. Se quita después.
   push:
     branches: [master]
     paths: ['.github/workflows/verificacion.yml']
