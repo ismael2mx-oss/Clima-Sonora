@@ -39,5 +39,15 @@
       "source": "/api/cron/historico",
       "destination": "/api/resumen-frio?tipo=cron-historico"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/pronostico",
+      "schedule": "30 12 * * *"
+    },
+    {
+      "path": "/api/cron/observaciones",
+      "schedule": "0 17 * * *"
+    }
   ]
 }

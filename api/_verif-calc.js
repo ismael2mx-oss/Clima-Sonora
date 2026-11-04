@@ -2,6 +2,7 @@ import { consultar, asegurarEsquema, hayBaseDeDatos } from './_db.js';
 import { REGIONES } from './_regiones.js';
 import { ESTACIONES, CALIDAD_TXT, MIN_HORAS_COBERTURA, VENTANA_MAX, VENTANA_MIN, MIN_HORAS_VENTANA, sumaDias } from './_verif-obs.js';
 import { FUENTES, FUENTE_NOMBRE, fechaSonora } from './_verif-pron.js';
+import { respaldoSiFalta } from './_verif-cron.js';
 
 // Comparación de lo pronosticado contra lo observado: error del día, sesgo, MAE (7 y 30 días), % de aciertos y ranking por región.
 
@@ -140,6 +141,8 @@ export async function textoVerificacion({ muestra = false } = {}) {
   try { await asegurarEsquema(); } catch (err) { L.push(`[No disponible: no se pudo conectar a la base de datos: ${err.message}]`); return L.join('\n'); }
 
   const SEP = '==================================================';
+  // Si la tarea programada no corrió, el pronóstico de hoy (después de las 07:00 h) y las observaciones de ayer (después de las 11:00 h) se guardan aquí.
+  const respaldo = await respaldoSiFalta().catch(() => null);
   const [ej, cnt] = await Promise.all([ultimasEjecuciones(), conteos()]);
   L.push(SEP, 'ESTADO DE LOS DATOS', SEP);
   const linEj = (t, nombre, horasMax) => {
@@ -148,9 +151,20 @@ export async function textoVerificacion({ muestra = false } = {}) {
     const horas = Math.round((ahora - Date.parse(e.inicio)) / 3600000);
     const viejo = horasMax && horas > horasMax ? ` — ATENCIÓN: hace ${horas} h, debería ejecutarse cada día` : '';
     const estado = e.estado === 'en curso' && horas >= 1 ? 'no terminó (interrumpida o con tiempo agotado)' : e.estado;
-    return `- ${nombre}: última ejecución ${horaSon(e.inicio)} (${estado})${viejo}`;
+    let disparo = '';
+    try { const d = JSON.parse(e.detalle || '{}').disparo; if (d) disparo = `, disparada por ${d}`; } catch (_) { /* detalle cortado */ }
+    return `- ${nombre}: última ejecución ${horaSon(e.inicio)} (${estado}${disparo})${viejo}`;
   };
   L.push(linEj('pronostico', 'Guardado del pronóstico (05:30 h)', 26), linEj('observaciones', 'Guardado de observaciones (10:00 h)', 26), linEj('historico', 'Carga histórica (única)', null));
+  if (respaldo && (respaldo.pronostico || respaldo.observaciones || respaldo.error)) {
+    const partes = [respaldo.pronostico && `pronóstico de hoy: ${respaldo.pronostico}`, respaldo.observaciones && `observaciones de ayer: ${respaldo.observaciones}`, respaldo.error && `error al comprobar: ${respaldo.error}`].filter(Boolean);
+    L.push(`- Respaldo automático: ${partes.join(' | ')}`);
+  }
+  try {
+    const dias = await consultar("SELECT fecha_emision, MIN(guardado_en) AS primero FROM pronosticos WHERE origen = 'cron' GROUP BY fecha_emision ORDER BY fecha_emision DESC LIMIT 14");
+    const lin = dias.map(d => { const h = new Intl.DateTimeFormat('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Hermosillo' }).format(new Date(d.primero)); const tarde = Number(h.slice(0, 2)) >= 7 || Number(h.slice(0, 2)) < 4; return `${d.fecha_emision} a las ${h} h${tarde ? ' (TARDÍO)' : ''}`; });
+    if (lin.length) L.push(`- Hora en que se guardó por primera vez el pronóstico de cada día (se espera entre las 05:00 y las 06:00 h; después de las 07:00 h es tardío): ${lin.join('; ')}`);
+  } catch (_) { /* sin datos */ }
   L.push(`- Pronósticos guardados (a las 05:30 h): ${cnt.pron.dias} día(s) desde ${cnt.pron.desde || 'n/d'} hasta ${cnt.pron.hasta || 'n/d'} (${cnt.pron.filas} filas)`);
   L.push(`- Observaciones guardadas: ${cnt.obs.dias} día(s) desde ${cnt.obs.desde || 'n/d'} hasta ${cnt.obs.hasta || 'n/d'}`);
   L.push(`- Histórico de corto plazo (carga inicial, se reporta aparte): ${cnt.hist.filas} filas, ${cnt.hist.desde || 'n/d'} a ${cnt.hist.hasta || 'n/d'}`);

@@ -364,9 +364,11 @@ async function respondCron(req, res, tarea) {
     const aut = cron.autorizacion(req);
     if (!aut.ok) { res.status(aut.codigo).json({ estado: 'rechazado', mensaje: aut.mensaje }); return; }
     const q = req.query || {};
+    const ua = String((req.headers && req.headers['user-agent']) || '');
+    const disparo = /vercel-cron/i.test(ua) ? 'Vercel Cron' : /^curl/i.test(ua) ? 'GitHub Actions' : 'manual';
     let r;
-    if (tarea === 'pronostico') r = await cron.tareaPronostico({ forzar: String(q.forzar || '') === '1' });
-    else if (tarea === 'observaciones') r = await cron.tareaObservaciones({ fecha: q.fecha ? String(q.fecha) : undefined });
+    if (tarea === 'pronostico') r = await cron.tareaPronostico({ forzar: String(q.forzar || '') === '1', disparo });
+    else if (tarea === 'observaciones') r = await cron.tareaObservaciones({ fecha: q.fecha ? String(q.fecha) : undefined, disparo });
     else if (tarea === 'historico') r = await cron.tareaHistorico({ dias: q.dias ? Number(q.dias) : undefined });
     else { res.status(404).json({ estado: 'desconocida', mensaje: `Tarea desconocida: ${tarea}` }); return; }
     // Un error total devuelve 500 para que GitHub Actions marque la ejecución como fallida y avise por correo.

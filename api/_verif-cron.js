@@ -23,9 +23,9 @@ const filaObs = (o, guardado) => [o.fecha, o.estacion, o.municipio, o.calidad, r
 const msg = e => (e && e.message ? e.message : String(e));
 
 // ---------- 05:30 h: guardar el pronóstico de hoy y de mañana ----------
-export async function tareaPronostico({ forzar = false } = {}) {
+export async function tareaPronostico({ forzar = false, disparo = 'manual' } = {}) {
   const cerrar = await iniciarEjecucion('pronostico');
-  const res = { tarea: 'pronostico', fecha: fechaSonora(), fuentes: {}, errores: [] };
+  const res = { tarea: 'pronostico', fecha: fechaSonora(), disparo, fuentes: {}, errores: [] };
   try {
     if (!hayBaseDeDatos()) throw new Error('No hay base de datos configurada (falta DATABASE_URL).');
     await asegurarEsquema();
@@ -74,11 +74,11 @@ async function guardarLluviaSatelite(desde, hasta, res) {
   res.lluviaSatelite = await insertarFilas('lluvia_satelite', ['fecha', 'municipio', 'mm', 'fuente', 'guardado_en'], filas, ['fecha', 'municipio'], 'reemplazar');
 }
 
-export async function tareaObservaciones({ fecha } = {}) {
+export async function tareaObservaciones({ fecha, disparo = 'manual' } = {}) {
   const cerrar = await iniciarEjecucion('observaciones');
   const hoy = fechaSonora();
   const hasta = fecha || sumaDias(hoy, -1);
-  const res = { tarea: 'observaciones', hasta, errores: [] };
+  const res = { tarea: 'observaciones', hasta, disparo, errores: [] };
   try {
     if (!hayBaseDeDatos()) throw new Error('No hay base de datos configurada (falta DATABASE_URL).');
     await asegurarEsquema();
@@ -116,6 +116,41 @@ export async function tareaHistorico({ dias = 75 } = {}) {
   } catch (err) { res.errores.push(msg(err)); res.estado = 'error'; }
   await cerrar(res.estado, JSON.stringify(res));
   return res;
+}
+
+// ---------- respaldo: si la tarea programada no corrió, el guardado se hace en la primera consulta posterior ----------
+// GitHub Actions puede retrasar horas (o saltarse) una ejecución programada. Después de las 07:00 h (pronóstico) y de las 11:00 h
+// (observaciones), /api/verificacion y /api/resumen-pronostico comprueban si ya está guardado lo de hoy y, si falta, lo guardan.
+// Los guardados son idempotentes: si luego llega la ejecución programada, no duplica ni sobrescribe el pronóstico ya guardado.
+const horaSonora = () => Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Hermosillo', hour: '2-digit', hourCycle: 'h23' }).format(new Date()));
+let ultimoRespaldo = { at: 0, res: null };
+
+export async function respaldoSiFalta() {
+  if (!hayBaseDeDatos()) return null;
+  if (ultimoRespaldo.res && Date.now() - ultimoRespaldo.at < 5 * 60 * 1000) return ultimoRespaldo.res;
+  const out = { pronostico: null, observaciones: null };
+  try {
+    await asegurarEsquema();
+    const hoy = fechaSonora(), ayer = sumaDias(hoy, -1), hora = horaSonora();
+    const intentoReciente = async tarea => {
+      const f = await consultar('SELECT inicio FROM ejecuciones WHERE tarea = $1 ORDER BY inicio DESC LIMIT 1', [tarea]);
+      return Boolean(f[0]) && Date.now() - Date.parse(f[0].inicio) < 10 * 60 * 1000;
+    };
+    if (hora >= 7) {
+      const r = await consultar("SELECT COUNT(DISTINCT fuente) AS n FROM pronosticos WHERE origen = 'cron' AND fecha_emision = $1", [hoy]);
+      if (Number(r[0].n) >= 5) out.pronostico = 'ya estaba guardado';
+      else if (await intentoReciente('pronostico')) out.pronostico = 'faltaba, pero hay un intento de guardado en los últimos 10 minutos';
+      else { const t = await tareaPronostico({ disparo: 'respaldo (primera consulta después de las 07:00 h)' }); out.pronostico = `faltaba: se guardó ahora como respaldo (${t.estado}${t.errores.length ? '; ' + t.errores.join('; ') : ''})`; }
+    }
+    if (hora >= 11) {
+      const r = await consultar('SELECT COUNT(DISTINCT estacion) AS n FROM observaciones WHERE fecha = $1', [ayer]);
+      if (Number(r[0].n) >= ESTACIONES.length) out.observaciones = 'ya estaban guardadas';
+      else if (await intentoReciente('observaciones')) out.observaciones = 'faltaban, pero hay un intento de guardado en los últimos 10 minutos';
+      else { const t = await tareaObservaciones({ disparo: 'respaldo (primera consulta después de las 11:00 h)' }); out.observaciones = `faltaban: se guardaron ahora como respaldo (${t.estado}${t.errores.length ? '; ' + t.errores.join('; ') : ''})`; }
+    }
+  } catch (err) { out.error = err && err.message ? err.message : String(err); }
+  ultimoRespaldo = { at: Date.now(), res: out };
+  return out;
 }
 
 export { MUNICIPIOS };

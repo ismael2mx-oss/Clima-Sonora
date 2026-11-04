@@ -8,6 +8,9 @@ on:
   schedule:
     - cron: '30 12 * * *'
     - cron: '0 17 * * *'
+    # Respaldos por si GitHub retrasa o se salta los anteriores (guardar dos veces el mismo día es seguro):
+    - cron: '5 14 * * *'   # 07:05 h Sonora -> pronóstico
+    - cron: '5 18 * * *'   # 11:05 h Sonora -> observaciones
   workflow_dispatch:
     inputs:
       tarea:
@@ -48,7 +51,7 @@ jobs:
         run: |
           if [ "$EVENTO" = "workflow_dispatch" ]; then
             NOMBRE="$TAREA_ENTRADA"; PARAMETROS="$PARAMETROS_ENTRADA"
-          elif [ "$HORARIO" = "30 12 * * *" ]; then
+          elif [ "$HORARIO" = "30 12 * * *" ] || [ "$HORARIO" = "5 14 * * *" ]; then
             NOMBRE="pronostico"; PARAMETROS=""
           else
             NOMBRE="observaciones"; PARAMETROS=""

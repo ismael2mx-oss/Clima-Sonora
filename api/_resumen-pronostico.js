@@ -7,6 +7,7 @@ import { calcularRegiones, compararModelos, analizarSmn, frasesDescenso, tendenc
 import { loadPacificStorms, loadOutlookData } from './ciclones.js';
 import { segundosSonora, PORTS, nearest, stormSectionSegura as stormSection, bboxOf, esAreaGlobal, fmtLat, fmtLon, fmtKm } from './resumen-ciclones.js';
 import { lineasVerificacionPorRegion } from './_verif-calc.js';
+import { respaldoSiFalta } from './_verif-cron.js';
 import { loadAzAlerts, alertasSection, avanceTexto, horaSonora, failure } from './resumen-frio.js';
 
 const TZ = 'America/Hermosillo';
@@ -245,6 +246,8 @@ export async function buildResumenPronostico() {
   const ahora = Date.now();
   // Todas las fuentes externas (también las de Open-Meteo) tienen un plazo: pasados 40 s se da por caída la que no responde,
   // para contestar siempre antes del límite de 60 s de la función. Una consulta lenta sigue en segundo plano y deja su caché lista.
+  // Respaldo de la verificación: si el guardado diario no corrió, se hace ahora (en paralelo, sin retrasar el resumen).
+  const pRespaldo = conPlazo(respaldoSiFalta(), 25000).catch(() => null);
   const [rPron, rLluvia, rMod, rCorridas, rSmn, rFrente, rStorms, rOutlook, rAz] = await Promise.allSettled([
     conPlazo(loadOpenMeteoPronostico(), 40000), conPlazo(loadLluviaDiaria(), 40000), conPlazo(loadOpenMeteoModelos(), 40000), conPlazo(loadCorridasModelos(), 20000),
     conPlazo(loadSmnTextos(), 30000), conPlazo(loadFrenteEstado({ plazoSenalesMs: 32000 }), 45000), conPlazo(loadPacificStorms(), 30000), conPlazo(loadOutlookData(), 30000), conPlazo(loadAzAlerts(), 30000)
@@ -291,8 +294,10 @@ export async function buildResumenPronostico() {
     })));
   }
 
+  const respaldoVerif = await pRespaldo;
   const notas = seguro('notas', () => {
     const out = [];
+    if (respaldoVerif && (String(respaldoVerif.pronostico || '').startsWith('faltaba') || String(respaldoVerif.observaciones || '').startsWith('faltaban'))) out.push(`Verificación (respaldo automático): ${[respaldoVerif.pronostico && `pronóstico de hoy ${respaldoVerif.pronostico}`, respaldoVerif.observaciones && `observaciones de ayer ${respaldoVerif.observaciones}`].filter(Boolean).join(' | ')}.`);
     // Impactos con consenso de modelos.
     if (modelos) {
       const imp = [];
