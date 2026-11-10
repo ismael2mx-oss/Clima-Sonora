@@ -21,6 +21,7 @@
     --paper: #F2EEE3;
     --slate: #8993A8;
     --rule: rgba(242,238,227,0.10);
+    --rain: #7FB3E8;
   }
   *{ box-sizing: border-box; margin:0; padding:0; }
   body{
@@ -39,11 +40,7 @@
     color: var(--slate);
     display:block;
   }
-  h1{
-    font-size: 22px;
-    font-weight: 600;
-    margin: 6px 0 4px;
-  }
+  h1{ font-size: 22px; font-weight: 600; margin: 6px 0 4px; }
   .subtitle{ font-size: 13px; color: var(--slate); margin-bottom: 20px; }
   .back-link{
     display:inline-block;
@@ -57,244 +54,343 @@
     border-radius: 8px;
   }
   .back-link:hover{ color: var(--paper); border-color: var(--brass); }
-  .actions{ display:flex; gap: 12px; flex-wrap: wrap; margin-bottom: 22px; }
   button{
     font-family: 'IBM Plex Mono', monospace;
     font-size: 13px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    padding: 12px 20px;
+    padding: 12px 16px;
     border-radius: 10px;
-    border: none;
+    border: 1px solid transparent;
     cursor: pointer;
     background: var(--brass);
     color: var(--ink);
     font-weight: 600;
-    transition: background 0.15s ease, opacity 0.15s ease;
+    transition: background 0.15s ease, opacity 0.15s ease, border-color 0.15s ease;
   }
   button:hover:not(:disabled){ background: #E5B563; }
   button:disabled{ opacity: 0.5; cursor: not-allowed; }
-  button.secondary{
-    background: transparent;
-    color: var(--paper);
-    border: 1px solid var(--rule);
+  button.secondary{ background: transparent; color: var(--paper); border-color: var(--rule); }
+  button.secondary:hover:not(:disabled){ border-color: var(--brass); color: var(--brass); background: transparent; }
+
+  /* Selector de lista: Pronóstico del día / Próximas horas / Lluvia 5 días */
+  .modos{ display:grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+  .modo{
+    display:flex; flex-direction:column; align-items:flex-start; gap: 4px; text-align:left;
+    background: var(--panel); color: var(--paper); border: 1px solid var(--rule);
+    text-transform:none; letter-spacing:0; padding: 12px 14px; font-family:'IBM Plex Sans', sans-serif;
   }
-  button.secondary:hover:not(:disabled){ border-color: var(--brass); color: var(--brass); }
-  .status{
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 13px;
-    color: var(--slate);
-    margin-bottom: 16px;
-    min-height: 18px;
+  .modo:hover:not(:disabled){ background: var(--panel-light); border-color: var(--brass); }
+  .modo .t{ font-family:'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; font-weight:600; }
+  .modo .d{ font-size: 11px; color: var(--slate); font-weight:400; line-height:1.35; }
+  .modo[aria-pressed="true"]{ background: var(--brass); color: var(--ink); border-color: var(--brass); }
+  .modo[aria-pressed="true"] .d{ color: rgba(15,23,41,0.78); }
+  .modo[aria-pressed="true"]:hover:not(:disabled){ background:#E5B563; }
+  @media (max-width: 560px){
+    .modos{ grid-template-columns: 1fr 1fr; }
+    .modo.largo{ grid-column: 1 / -1; }
   }
-  .panel{
-    background: var(--panel);
-    border: 1px solid var(--rule);
-    border-radius: 14px;
-    overflow: hidden;
+
+  .daytabs{ display:grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 14px; }
+  .daytabs button{
+    display:flex; flex-direction:column; gap:2px; align-items:center; padding: 9px 4px; text-transform:none; letter-spacing:0;
+    background: var(--panel); color: var(--paper); border: 1px solid var(--rule); font-family:'IBM Plex Sans', sans-serif;
   }
+  .daytabs button:hover:not(:disabled){ background: var(--panel-light); border-color: var(--brass); }
+  .daytabs .dl{ font-family:'IBM Plex Mono', monospace; font-size: 11px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; }
+  .daytabs .dv{ font-family:'IBM Plex Mono', monospace; font-size: 15px; font-weight:600; color: var(--rain); }
+  .daytabs .ds{ font-size: 10px; color: var(--slate); }
+  .daytabs button[aria-pressed="true"]{ background: var(--brass); border-color: var(--brass); color: var(--ink); }
+  .daytabs button[aria-pressed="true"] .dv, .daytabs button[aria-pressed="true"] .ds{ color: var(--ink); }
+  [hidden]{ display:none !important; }
+
+  .status{ font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: var(--slate); margin-bottom: 12px; min-height: 18px; }
+  .status.error{ color: #F08C7E; }
+  .info{
+    background: var(--panel); border: 1px solid var(--rule); border-left: 3px solid var(--brass);
+    border-radius: 12px; padding: 12px 16px; margin-bottom: 12px; font-size: 13px; line-height: 1.55;
+  }
+  .info .titulo{ font-weight:600; font-size: 15px; margin-bottom: 2px; }
+  .info .hora{ color: var(--brass); font-family:'IBM Plex Mono', monospace; font-size: 13px; }
+  .info .nota{ color: var(--slate); font-size: 12px; margin-top: 4px; }
+  .info .aviso{ color: #F0B27E; font-size: 12px; margin-top: 6px; }
+  .resumen{
+    background: var(--panel); border: 1px solid var(--rule); border-radius: 12px;
+    padding: 12px 16px; margin-bottom: 12px; font-size: 13px; line-height: 1.6;
+  }
+  .resumen strong{ color: var(--brass); }
+  .toolbar{ display:flex; gap: 10px; flex-wrap: wrap; align-items:center; margin-bottom: 12px; }
+  .toolbar .sp{ flex: 1; }
+
+  .panel{ background: var(--panel); border: 1px solid var(--rule); border-radius: 14px; overflow: hidden; }
   table{ width: 100%; border-collapse: collapse; table-layout: fixed; }
   thead th{
-    text-align: left;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 11px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--slate);
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--rule);
+    text-align: left; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--slate); padding: 12px 16px; border-bottom: 1px solid var(--rule);
   }
-  tbody td{
-    padding: 10px 16px;
-    font-size: 14px;
-    border-bottom: 1px solid var(--rule);
-    overflow-wrap: break-word;
-  }
+  thead th.num{ text-align:right; }
+  tbody td{ padding: 10px 16px; font-size: 14px; border-bottom: 1px solid var(--rule); overflow-wrap: break-word; }
   tbody tr:last-child td{ border-bottom: none; }
   tbody tr:hover{ background: var(--panel-light); }
-  td.rank{ font-family: 'IBM Plex Mono', monospace; color: var(--slate); width: 30px; }
+  td.rank{ font-family: 'IBM Plex Mono', monospace; color: var(--slate); width: 34px; }
   .cabecera{ display: block; font-size: 11px; color: var(--slate); margin-top: 2px; }
-  td.rain{ font-family: 'IBM Plex Mono', monospace; font-weight: 600; color: var(--brass); text-align:right; width: 64px; }
+  td.rain, td.mm{ font-family: 'IBM Plex Mono', monospace; font-weight: 600; text-align:right; }
+  td.rain{ color: var(--brass); width: 70px; }
+  td.mm{ color: var(--rain); width: 86px; }
+  th.rain{ width: 70px; } th.mm{ width: 86px; } th.rank{ width: 34px; }
   @media (max-width: 420px){
     thead th{ padding: 10px 8px; font-size: 10px; }
     tbody td{ padding: 8px 8px; font-size: 13px; }
-    td.rank{ width: 22px; }
-    td.rain{ width: 54px; }
+    td.rank, th.rank{ width: 26px; }
+    td.rain, th.rain{ width: 54px; }
+    td.mm, th.mm{ width: 66px; }
+    .daytabs{ gap: 5px; }
+    .daytabs .dl{ font-size: 10px; }
   }
-  .empty-hint{ padding: 40px 16px; text-align:center; color: var(--slate); font-size: 13px; }
-  .resumen{
-    background: var(--panel);
-    border: 1px solid var(--rule);
-    border-radius: 12px;
-    padding: 14px 16px;
-    margin-bottom: 16px;
-    font-size: 13px;
-    line-height: 1.6;
-  }
-  .resumen strong{ color: var(--brass); }
   tr.extremo td{ background: rgba(94,140,196,0.18); }
-  tr.extremo td.rain{ color: #7FB3E8; }
+  tr.extremo td.rain{ color: var(--rain); }
+  .empty-hint{ padding: 40px 16px; text-align:center; color: var(--slate); font-size: 13px; }
   footer{
-    max-width: 720px;
-    margin: 24px auto 0;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.06em;
-    color: var(--slate);
-    text-align:center;
+    max-width: 720px; margin: 24px auto 0; text-align:center; font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px; letter-spacing: 0.14em; color: var(--slate);
   }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <a class="back-link" href="/">← Volver al clima</a>
-  <span class="eyebrow">SONORA — 72 MUNICIPIOS</span>
-  <h1>Probabilidad de lluvia del día por municipio</h1>
-  <p class="subtitle">Ordenado de mayor a menor. Genera la lista del día y descárgala en PDF.</p>
+  <a class="back-link" href="/">&larr; Volver</a>
+  <span class="eyebrow">Sonora · 72 municipios</span>
+  <h1>Probabilidad de lluvia por municipio</h1>
+  <p class="subtitle">Porcentaje de probabilidad y milímetros esperados (Open-Meteo). Elige qué lista quieres ver.</p>
 
-  <div class="actions">
-    <button id="generarBtn" type="button">Generar lista</button>
-    <button id="pdfBtn" type="button" class="secondary" disabled>Descargar PDF</button>
+  <div class="modos" role="group" aria-label="Tipo de lista">
+    <button type="button" class="modo" id="modoDia" data-modo="dia" aria-pressed="false">
+      <span class="t">Pronóstico del día</span>
+      <span class="d">Día completo (00–24 h). Lista fija de la mañana: no cambia.</span>
+    </button>
+    <button type="button" class="modo" id="modoHoras" data-modo="horas" aria-pressed="false">
+      <span class="t">Próximas horas</span>
+      <span class="d">De ahora a las 23:59 h. En vivo: se calcula al momento.</span>
+    </button>
+    <button type="button" class="modo largo" id="modoSemana" data-modo="semana" aria-pressed="false">
+      <span class="t">Lluvia 5 días</span>
+      <span class="d">Hoy y los 4 días siguientes, por municipio.</span>
+    </button>
   </div>
 
-  <div id="status" class="status"></div>
-  <div id="resumen" class="resumen" style="display:none;"></div>
+  <div class="daytabs" id="diasTabs" hidden></div>
+  <div class="status" id="status" role="status" aria-live="polite"></div>
+  <div class="info" id="info" hidden></div>
+  <div class="resumen" id="resumen" hidden></div>
+  <div class="toolbar" id="toolbar" hidden>
+    <button type="button" class="secondary" id="actualizarBtn">Actualizar</button>
+    <span class="sp"></span>
+    <button type="button" id="pdfBtn" disabled>Descargar PDF</button>
+  </div>
 
   <div class="panel">
-    <table id="tabla" style="display:none;">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Municipio</th>
-          <th style="text-align:right;">Lluvia %</th>
-        </tr>
-      </thead>
-      <tbody id="tbody"></tbody>
+    <table>
+      <thead><tr><th class="rank">#</th><th>Municipio</th><th class="num rain">Lluvia %</th><th class="num mm">mm</th></tr></thead>
+      <tbody id="tabla"></tbody>
     </table>
-    <div id="emptyHint" class="empty-hint">Presiona "Generar lista" para consultar los 72 municipios.</div>
+    <div class="empty-hint" id="emptyHint">Cargando la lista…</div>
   </div>
-
-  <footer>DATOS: WEATHERAPI.COM</footer>
 </div>
+<footer>DATOS: OPEN-METEO.COM</footer>
 
 <script>
-  let ultimaLista = null;
-  let ultimaFecha = null;
+(() => {
+  const UMBRAL_LLUVIA = 70;
+  const TZ = 'America/Hermosillo';
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const finito = v => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
+  const pct = v => (finito(v) ? `${Math.round(Number(v))}%` : '—');
+  const mmTxt = v => (finito(v) ? Number(v).toFixed(1) : '—');
+  const DIAS_LARGO = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+  const DIAS_CORTO = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
+  const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  const fechaLarga = f => { const d = new Date(f + 'T12:00:00Z'); return `${DIAS_LARGO[d.getUTCDay()]} ${d.getUTCDate()} de ${MESES[d.getUTCMonth()]} de ${d.getUTCFullYear()}`; };
+  const horaSonora = iso => new Intl.DateTimeFormat('es-MX', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(iso)) + ' h';
 
-  const UMBRAL_LLUVIA = 70; // % — probabilidad alta
+  // Mayor % primero y, en empate, más mm (igual que la sección de lluvia de ciclones.html).
+  const ordenar = filas => [...filas].sort((a, b) => (finito(b.p) ? Number(b.p) : -1) - (finito(a.p) ? Number(a.p) : -1) || (b.mm || 0) - (a.mm || 0) || String(a.municipio).localeCompare(String(b.municipio), 'es'));
 
-  const generarBtn = document.getElementById('generarBtn');
-  const pdfBtn = document.getElementById('pdfBtn');
-  const statusEl = document.getElementById('status');
-  const resumenEl = document.getElementById('resumen');
-  const tabla = document.getElementById('tabla');
-  const tbody = document.getElementById('tbody');
-  const emptyHint = document.getElementById('emptyHint');
+  let modo = null;        // 'dia' | 'horas' | 'semana'
+  let semana = null;      // respuesta de ?vista=semana
+  let diaSel = 0;
+  let vistaActual = null; // { titulo, hora, notas[], filas[], archivo, resumen }
+  let cargando = 0;
 
-  async function generarLista(){
-    generarBtn.disabled = true;
-    pdfBtn.disabled = true;
-    statusEl.textContent = 'Consultando los 72 municipios, un momento…';
-    tabla.style.display = 'none';
-    resumenEl.style.display = 'none';
-    emptyHint.style.display = 'block';
-    emptyHint.textContent = 'Cargando…';
+  function setStatus(txt, error) { const s = $('status'); s.textContent = txt || ''; s.className = 'status' + (error ? ' error' : ''); }
 
-    try{
-      const res = await fetch('/api/municipios-temp');
-      const data = await res.json();
-      if(!res.ok) throw new Error(data?.error?.message || 'Error al consultar el clima.');
+  async function pedir(vista) {
+    const res = await fetch(`/api/sonora-lluvia?vista=${vista}&_=${Date.now()}`, { cache: 'no-store' });
+    let j = null;
+    try { j = await res.json(); } catch (_) { /* respuesta sin JSON */ }
+    if (!res.ok || !j || j.error) throw new Error((j && j.error && j.error.message) || `Error ${res.status} al consultar la lluvia.`);
+    return j;
+  }
 
-      ultimaLista = [...data.municipios].sort((a, b) => {
-        if(a.chance_of_rain === null || a.chance_of_rain === undefined) return 1;
-        if(b.chance_of_rain === null || b.chance_of_rain === undefined) return -1;
-        return b.chance_of_rain - a.chance_of_rain;
-      });
-      ultimaFecha = new Date(data.generado);
+  function resumenTexto(filas) {
+    const conDato = filas.filter(f => finito(f.p));
+    if (!conDato.length) return null;
+    const alta = conDato.filter(f => Number(f.p) >= UMBRAL_LLUVIA).length;
+    const prom = Math.round(conDato.reduce((a, f) => a + Number(f.p), 0) / conDato.length);
+    const mayor = conDato[0];
+    return { prom, alta, texto: `Promedio estatal <strong>${prom}%</strong> · <strong>${alta}</strong> municipio${alta === 1 ? '' : 's'} con ${UMBRAL_LLUVIA}% o más · Mayor: <strong>${esc(mayor.municipio)}</strong> (${pct(mayor.p)}, ${mmTxt(mayor.mm)} mm)`, textoPlano: `Promedio estatal ${prom}% - ${alta} municipio${alta === 1 ? '' : 's'} con ${UMBRAL_LLUVIA}% o mas - Mayor: ${mayor.municipio} (${pct(mayor.p)}, ${mmTxt(mayor.mm)} mm)` };
+  }
 
-      tbody.innerHTML = '';
-      ultimaLista.forEach((m, i) => {
-        const tr = document.createElement('tr');
-        const lluvia = (m.chance_of_rain === null || m.chance_of_rain === undefined) ? '—' : m.chance_of_rain;
-        const cabeceraHtml = (m.cabecera && m.cabecera !== m.municipio)
-          ? `<td class="cabecera-cell">${m.municipio}<span class="cabecera">${m.cabecera}</span></td>`
-          : `<td>${m.municipio}</td>`;
-        if(m.chance_of_rain !== null && m.chance_of_rain !== undefined && m.chance_of_rain >= UMBRAL_LLUVIA){
-          tr.className = 'extremo';
-        }
-        tr.innerHTML = `
-          <td class="rank">${i+1}</td>
-          ${cabeceraHtml}
-          <td class="rain">${lluvia === '—' ? '—' : lluvia + '%'}</td>
-        `;
-        tbody.appendChild(tr);
-      });
+  function pintar(v) {
+    vistaActual = v;
+    const info = $('info');
+    info.hidden = false;
+    info.innerHTML = `<div class="titulo">${esc(v.titulo)}</div><div class="hora">${esc(v.hora)}</div>` +
+      (v.notas || []).map(n => `<div class="nota">${esc(n)}</div>`).join('') +
+      (v.avisos || []).map(n => `<div class="aviso">${esc(n)}</div>`).join('');
+    const r = resumenTexto(v.filas);
+    $('resumen').hidden = !r;
+    if (r) $('resumen').innerHTML = r.texto;
+    v.resumen = r;
+    $('tabla').innerHTML = v.filas.map((f, i) => {
+      const alta = finito(f.p) && Number(f.p) >= UMBRAL_LLUVIA;
+      const cab = f.cabecera && f.cabecera !== f.municipio ? `<span class="cabecera">Cabecera: ${esc(f.cabecera)}</span>` : '';
+      return `<tr${alta ? ' class="extremo"' : ''}><td class="rank">${i + 1}</td><td>${esc(f.municipio)}${cab}</td><td class="rain">${pct(f.p)}</td><td class="mm">${mmTxt(f.mm)}</td></tr>`;
+    }).join('');
+    $('emptyHint').hidden = true;
+    $('toolbar').hidden = false;
+    $('pdfBtn').disabled = false;
+  }
 
-      const conDato = ultimaLista.filter(m => m.chance_of_rain !== null && m.chance_of_rain !== undefined);
-      const sobreUmbral = conDato.filter(m => m.chance_of_rain >= UMBRAL_LLUVIA).length;
-      const promedio = conDato.length ? (conDato.reduce((s, m) => s + m.chance_of_rain, 0) / conDato.length) : null;
-      const masLluvioso = conDato[0];
-      resumenEl.innerHTML = `
-        Promedio de hoy: <strong>${promedio !== null ? Math.round(promedio) + '%' : '—'}</strong>
-        · <strong>${sobreUmbral}</strong> municipio${sobreUmbral === 1 ? '' : 's'} con ${UMBRAL_LLUVIA}% o más
-        ${masLluvioso ? `· Más lluvioso: <strong>${masLluvioso.municipio} (${masLluvioso.chance_of_rain}%)</strong>` : ''}
-      `;
-      resumenEl.style.display = 'block';
+  function limpiarVista() {
+    vistaActual = null;
+    $('info').hidden = true; $('resumen').hidden = true; $('toolbar').hidden = true;
+    $('tabla').innerHTML = ''; $('pdfBtn').disabled = true;
+    $('emptyHint').hidden = false; $('emptyHint').textContent = 'Cargando la lista…';
+  }
 
-      tabla.style.display = 'table';
-      emptyHint.style.display = 'none';
-      const fechaTexto = ultimaFecha.toLocaleString('es-MX', { dateStyle: 'long', timeStyle: 'short' });
-      statusEl.textContent = `Lista generada · ${fechaTexto}`;
-      pdfBtn.disabled = false;
-    }catch(err){
-      statusEl.textContent = 'No se pudo generar la lista: ' + err.message;
-      emptyHint.textContent = 'Intenta de nuevo.';
-    }finally{
-      generarBtn.disabled = false;
+  function vistaDia(d) {
+    const notas = ['Día completo (00:00 a 24:00 h, hora de Sonora). Esta lista no cambia durante el día, sin importar la hora en que la consultes.'];
+    if (d.creadoAhora) notas.push('Primera consulta del día: no había pronóstico guardado de las 05:30 h, así que se calculó y se guardó en este momento.');
+    return {
+      titulo: `Pronóstico del día · ${fechaLarga(d.fecha)}`,
+      hora: d.fijo ? `Pronóstico emitido hoy a las ${d.emitidoTexto}` : `Calculado a las ${d.emitidoTexto}`,
+      notas, avisos: d.advertencia ? [d.advertencia] : [],
+      filas: d.filas, archivo: `lluvia-dia-${d.fecha}`
+    };
+  }
+
+  function vistaHoras(d) {
+    const avisos = [];
+    if (d.desdeCache && d.datosDe) avisos.push(`Open-Meteo no respondió y se usan datos guardados de las ${horaSonora(d.datosDe)}${d.motivo ? ' (' + d.motivo + ')' : ''}.`);
+    return {
+      titulo: `Próximas horas · ${fechaLarga(d.fecha)}`,
+      hora: `Calculado a las ${d.calculadoTexto}; incluye solo las horas que faltan del día`,
+      notas: [`De ${d.desdeTexto} a 23:59 h (${d.horas} ${d.horas === 1 ? 'hora' : 'horas'}). Lluvia % = probabilidad máxima en esas horas; mm = suma en esas horas.`],
+      avisos, filas: d.filas, archivo: `lluvia-proximas-horas-${d.fecha}-${d.calculadoTexto.replace(/\D/g, '').slice(0, 4)}`
+    };
+  }
+
+  function filasSemana(i) {
+    return ordenar(semana.municipios.map(m => ({ municipio: m.municipio, cabecera: m.cabecera, p: m.prob[i], mm: m.mm[i] })).filter(f => finito(f.p)));
+  }
+  function etiquetaDia(fecha, i) { const d = new Date(fecha + 'T12:00:00Z'); return i === 0 ? 'HOY' : i === 1 ? 'MAÑANA' : DIAS_CORTO[d.getUTCDay()]; }
+
+  function pintarTabsSemana() {
+    const c = $('diasTabs');
+    c.hidden = false;
+    c.innerHTML = semana.dias.map((f, i) => {
+      const filas = filasSemana(i);
+      const prom = filas.length ? Math.round(filas.reduce((a, x) => a + Number(x.p), 0) / filas.length) : null;
+      const n = filas.filter(x => Number(x.p) >= 50).length;
+      const d = new Date(f + 'T12:00:00Z');
+      return `<button type="button" data-dia="${i}" aria-pressed="${i === diaSel}"><span class="dl">${etiquetaDia(f, i)}</span><span class="dv">${prom === null ? '—' : prom + '%'}</span><span class="ds">${d.getUTCDate()}/${d.getUTCMonth() + 1} · ${n} ≥50%</span></button>`;
+    }).join('');
+  }
+
+  function vistaSemana() {
+    const f = semana.dias[diaSel];
+    const avisos = [];
+    if (semana.desdeCache) avisos.push(`Open-Meteo no respondió y se usan datos guardados${semana.motivo ? ' ' + semana.motivo : ''}.`);
+    const notas = ['Día completo (00:00 a 24:00 h). Es el mismo cálculo de la sección de lluvia de Ciclones, así que ambas muestran los mismos números.'];
+    if (diaSel === 0) notas.push('HOY se recalcula en cada consulta; la lista fija de la mañana está en "Pronóstico del día".');
+    return {
+      titulo: `Lluvia ${diaSel === 0 ? 'de hoy' : diaSel === 1 ? 'de mañana' : ''} · ${fechaLarga(f)}`.replace('Lluvia  ·', 'Lluvia ·'),
+      hora: `Consultado a las ${horaSonora(semana.generado)}`,
+      notas, avisos, filas: filasSemana(diaSel), archivo: `lluvia-5dias-${f}`
+    };
+  }
+
+  async function activar(m, forzar) {
+    if (cargando) return;
+    const mismo = m === modo;
+    modo = m;
+    document.querySelectorAll('.modo').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.modo === m)));
+    $('diasTabs').hidden = m !== 'semana';
+    if (!mismo || forzar) limpiarVista();
+    setStatus(m === 'dia' ? 'Consultando el pronóstico del día…' : m === 'horas' ? 'Calculando las próximas horas…' : 'Consultando la lluvia de 5 días…');
+    cargando++;
+    document.querySelectorAll('.modo, #actualizarBtn, #pdfBtn').forEach(b => { b.disabled = true; });
+    try {
+      const d = await pedir(m);
+      if (modo !== m) return;
+      if (m === 'dia') pintar(vistaDia(d));
+      else if (m === 'horas') pintar(vistaHoras(d));
+      else { semana = { ...d, generado: d.generado }; if (diaSel >= semana.dias.length) diaSel = 0; pintarTabsSemana(); pintar(vistaSemana()); }
+      setStatus('');
+    } catch (err) {
+      setStatus(err.message || 'No se pudo consultar la lluvia.', true);
+      $('emptyHint').hidden = false; $('emptyHint').textContent = 'No se pudo cargar la lista. Toca "Actualizar" para intentar de nuevo.';
+      $('toolbar').hidden = false; $('pdfBtn').disabled = true;
+    } finally {
+      cargando--;
+      document.querySelectorAll('.modo, #actualizarBtn').forEach(b => { b.disabled = false; });
+      $('pdfBtn').disabled = !vistaActual;
     }
   }
 
-  function descargarPDF(){
-    if(!ultimaLista) return;
+  function descargarPDF() {
+    const v = vistaActual;
+    if (!v || !window.jspdf) { setStatus('No se pudo cargar la librería del PDF. Revisa tu conexión y recarga la página.', true); return; }
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
-
-    const fechaTexto = ultimaFecha.toLocaleString('es-MX', { dateStyle: 'long', timeStyle: 'short' });
-    doc.setFontSize(14);
-    doc.text('Probabilidad de lluvia por municipio — Sonora', 14, 16);
-    doc.setFontSize(10);
-    doc.text('Generado: ' + fechaTexto, 14, 23);
-    doc.text(resumenEl.textContent.replace(/\s+/g, ' ').trim(), 14, 29, { maxWidth: 180 });
-
-    const filas = ultimaLista.map((m, i) => [
-      i+1,
-      m.municipio,
-      m.cabecera,
-      (m.chance_of_rain === null || m.chance_of_rain === undefined) ? '—' : m.chance_of_rain + '%'
-    ]);
-
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const W = doc.internal.pageSize.getWidth();
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
+    doc.text(doc.splitTextToSize(v.titulo, W - 28), 14, 18);
+    let y = 18 + 7 * doc.splitTextToSize(v.titulo, W - 28).length - 2;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5);
+    doc.text(v.hora + '.', 14, y); y += 6;
+    doc.setFontSize(9); doc.setTextColor(90);
+    const nota = doc.splitTextToSize((v.notas || []).concat(v.avisos || []).join(' '), W - 28);
+    doc.text(nota, 14, y); y += 4.2 * nota.length + 2;
+    if (v.resumen) { doc.setTextColor(0); doc.setFontSize(9.5); const r = doc.splitTextToSize(v.resumen.textoPlano, W - 28); doc.text(r, 14, y); y += 4.6 * r.length + 2; }
+    doc.setTextColor(0);
     doc.autoTable({
-      startY: 36,
-      head: [['#', 'Municipio', 'Cabecera', 'Lluvia']],
-      body: filas,
-      styles: { fontSize: 9 },
-      headStyles: { fillColor: [22, 31, 56] },
-      columnStyles: { 0: { cellWidth: 12 }, 3: { halign: 'right', cellWidth: 22 } },
-      didParseCell: (hookData) => {
-        if(hookData.section !== 'body') return;
-        const m = ultimaLista[hookData.row.index];
-        if(m && m.chance_of_rain !== null && m.chance_of_rain !== undefined && m.chance_of_rain >= UMBRAL_LLUVIA){
-          hookData.cell.styles.fillColor = [210, 227, 244];
-        }
-      }
+      startY: y,
+      head: [['#', 'Municipio', 'Cabecera', 'Lluvia %', 'mm']],
+      body: v.filas.map((f, i) => [i + 1, f.municipio, f.cabecera && f.cabecera !== f.municipio ? f.cabecera : '', pct(f.p), mmTxt(f.mm)]),
+      styles: { fontSize: 9, cellPadding: 1.6 },
+      headStyles: { fillColor: [22, 31, 56], textColor: 255 },
+      columnStyles: { 0: { cellWidth: 10, halign: 'right' }, 3: { halign: 'right', cellWidth: 24 }, 4: { halign: 'right', cellWidth: 22 } },
+      didParseCell: d => { if (d.section === 'body') { const f = v.filas[d.row.index]; if (f && finito(f.p) && Number(f.p) >= UMBRAL_LLUVIA) d.cell.styles.fillColor = [210, 227, 244]; } },
+      margin: { left: 14, right: 14, bottom: 16 }
     });
-
-    const fechaArchivo = ultimaFecha.toISOString().slice(0,10);
-    doc.save(`lluvia-sonora-${fechaArchivo}.pdf`);
+    const n = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= n; i++) { doc.setPage(i); doc.setFontSize(8); doc.setTextColor(120); doc.text(`Clima Sonora · Datos: Open-Meteo · Resaltado: ${UMBRAL_LLUVIA}% o más · Página ${i} de ${n}`, 14, doc.internal.pageSize.getHeight() - 8); }
+    doc.save(`${v.archivo}.pdf`);
   }
 
-  generarBtn.addEventListener('click', generarLista);
-  pdfBtn.addEventListener('click', descargarPDF);
+  document.querySelectorAll('.modo').forEach(b => b.addEventListener('click', () => activar(b.dataset.modo, b.dataset.modo === modo)));
+  $('actualizarBtn').addEventListener('click', () => activar(modo, true));
+  $('pdfBtn').addEventListener('click', descargarPDF);
+  $('diasTabs').addEventListener('click', e => {
+    const b = e.target.closest('button[data-dia]');
+    if (!b || !semana) return;
+    diaSel = Number(b.dataset.dia);
+    pintarTabsSemana(); pintar(vistaSemana());
+  });
+  activar('dia', false);
+})();
 </script>
 </body>
 </html>

@@ -6,7 +6,17 @@ export async function loadSonoraRain() {
 }
 
 export default async function handler(req, res) {
+  const vista = String(req.query?.vista || '');
   try {
+    // ?vista=dia | horas | semana: las listas de la página municipios-lluvia.html (nunca se guardan en caché).
+    if (vista) {
+      const { VISTAS } = await import('./_lluvia-vistas.js');
+      if (!VISTAS[vista]) { res.setHeader('Cache-Control', 'no-store'); res.status(400).json({ error: { message: 'Vista no válida (usa dia, horas o semana).' } }); return; }
+      const datos = await VISTAS[vista]();
+      res.setHeader('Cache-Control', 'no-store, max-age=0');
+      res.status(200).json({ generado: new Date().toISOString(), ...datos });
+      return;
+    }
     const { dias, municipios, datosDe, desdeCache, motivo } = await loadSonoraRain();
     // Con datos guardados por una falla de Open-Meteo, la respuesta no se guarda en caché.
     res.setHeader('Cache-Control', desdeCache ? 'no-store' : 's-maxage=1800, stale-while-revalidate=300');

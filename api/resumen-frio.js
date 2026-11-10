@@ -378,9 +378,23 @@ async function respondCron(req, res, tarea) {
   }
 }
 
+// /api/resumen-lluvia: lista fija del día, próximas horas y 5 días por municipio (texto plano), también por reescritura.
+async function respondResumenLluvia(req, res) {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', NO_CACHE);
+  try {
+    const { buildResumenLluvia } = await import('./_resumen-lluvia.js');
+    const { text } = await buildResumenLluvia();
+    res.status(200).send(text);
+  } catch (err) {
+    res.status(200).send(`LLUVIA POR MUNICIPIO — SONORA\n\n[ERROR INTERNO: no se pudo armar el resumen. Motivo: ${err && err.message ? err.message : 'error desconocido'}.]`);
+  }
+}
+
 export async function respondResumenFrio(req, res) {
   const tipo = String(req.query?.tipo || '');
   if (tipo === 'pronostico') return respondResumenPronostico(req, res);
+  if (tipo === 'lluvia') return respondResumenLluvia(req, res);
   if (tipo === 'verificacion') return respondVerificacion(req, res);
   if (tipo.startsWith('cron-')) return respondCron(req, res, tipo.slice(5));
   try {
