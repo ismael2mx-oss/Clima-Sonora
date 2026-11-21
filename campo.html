@@ -167,6 +167,8 @@
   const finito = v => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
   const f1 = v => (finito(v) ? Number(v).toFixed(1) : '—');
   const sg = v => (finito(v) ? (v > 0 ? '+' : '') + Number(v).toFixed(1) : '—');
+  // El porcentaje de comparación solo se muestra si este año y el pasado suman 50 h o más; con bases chicas engaña. Si no, solo la diferencia en horas.
+  const conPct = (actual, anterior, pct) => finito(pct) && finito(actual) && finito(anterior) && actual >= 50 && anterior >= 50;
   const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
   const DIAS = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
   const fechaCorta = f => { const d = new Date(f + 'T12:00:00Z'); return `${d.getUTCDate()} ${MESES[d.getUTCMonth()]} ${d.getUTCFullYear()}`; };
@@ -206,22 +208,22 @@
       hora: `Datos hasta el ${fechaCorta(d.corte)} (día completo más reciente) · día ${d.diasTemporada} de la temporada`,
       notas: [
         'Clásicas: horas con temperatura de 0 a 7.2 °C. Utah: unidades frío por hora (el acumulado nunca baja de 0). Temporada: 1 de noviembre al último día de febrero.',
-        `Comparación: acumulado a la misma fecha de la temporada ${d.temporadaAnterior} (${fechaCorta(d.corteAnterior)}).`
+        `Comparación: acumulado a la misma fecha de la temporada ${d.temporadaAnterior} (${fechaCorta(d.corteAnterior)}). El porcentaje solo se muestra cuando este año y el pasado suman 50 h o más; si no, solo la diferencia en horas.`
       ],
       avisos: d.avisos || [],
-      resumen: `Promedio estatal: <strong>${f1(p.horas)} h</strong> clásicas · <strong>${f1(p.utah)}</strong> unidades Utah · año pasado ${f1(p.horasAnt)} h (<strong>${sg(p.difH)} h${finito(p.difPct) ? ', ' + sg(p.difPct) + '%' : ''}</strong>)`,
-      resumenPlano: `Promedio estatal: ${f1(p.horas)} h clasicas, ${f1(p.utah)} unidades Utah; ano pasado ${f1(p.horasAnt)} h (${sg(p.difH)} h${finito(p.difPct) ? ', ' + sg(p.difPct) + '%' : ''})`,
+      resumen: `Promedio estatal: <strong>${f1(p.horas)} h</strong> clásicas · <strong>${f1(p.utah)}</strong> unidades Utah · año pasado ${f1(p.horasAnt)} h (<strong>${sg(p.difH)} h${conPct(p.horas, p.horasAnt, p.difPct) ? ', ' + sg(p.difPct) + '%' : ''}</strong>)`,
+      resumenPlano: `Promedio estatal: ${f1(p.horas)} h clasicas, ${f1(p.utah)} unidades Utah; ano pasado ${f1(p.horasAnt)} h (${sg(p.difH)} h${conPct(p.horas, p.horasAnt, p.difPct) ? ', ' + sg(p.difPct) + '%' : ''})`,
       head: ['#', 'Municipio', 'Horas frío', 'Utah', ayerTxt, `vs ${d.temporadaAnterior}`],
       cols: ['rank', '', 'n', 'n', 'n', 'n w'],
       filas: d.filas.map((f, i) => {
         const r = rango(f.horas);
         const cls = !finito(f.difH) ? 'igual' : f.difH > 0 ? 'mas' : f.difH < 0 ? 'menos' : 'igual';
-        const dif = finito(f.difH) ? `${f.difH > 0 ? '+' : ''}${f.difH} h<span class="sub">${finito(f.difPct) ? sg(f.difPct) + '%' : 'sin %'}</span>` : '—';
+        const dif = finito(f.difH) ? `${f.difH > 0 ? '+' : ''}${f.difH} h${conPct(f.horas, f.horasAnt, f.difPct) ? `<span class="sub">${sg(f.difPct)}%</span>` : ''}` : '—';
         const cab = f.cabecera && f.cabecera !== f.municipio ? `<span class="cabecera">Cabecera: ${esc(f.cabecera)}</span>` : '';
         const ancho = Math.max(2, Math.min(100, (f.horas / 1000) * 100));
         return {
           html: `<td class="rank">${i + 1}</td><td>${esc(f.municipio)}${cab}<span class="barra" title="${f.horas} h (${r.txt})"><b style="width:${ancho}%;background:${r.color}"></b></span></td><td class="n hf">${f.horas}</td><td class="n ut">${f1(f.utah)}</td><td class="n">${f.ayer}</td><td class="n w ${cls}">${dif}</td>`,
-          pdf: [i + 1, f.municipio + (f.cabecera && f.cabecera !== f.municipio ? ` (${f.cabecera})` : ''), f.horas, f1(f.utah), f.ayer, finito(f.difH) ? `${f.difH > 0 ? '+' : ''}${f.difH} h${finito(f.difPct) ? ' (' + sg(f.difPct) + '%)' : ''}` : '—'],
+          pdf: [i + 1, f.municipio + (f.cabecera && f.cabecera !== f.municipio ? ` (${f.cabecera})` : ''), f.horas, f1(f.utah), f.ayer, finito(f.difH) ? `${f.difH > 0 ? '+' : ''}${f.difH} h${conPct(f.horas, f.horasAnt, f.difPct) ? ' (' + sg(f.difPct) + '%)' : ''}` : '—'],
           fill: null
         };
       }),
