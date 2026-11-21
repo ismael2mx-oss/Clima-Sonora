@@ -369,6 +369,7 @@ async function respondCron(req, res, tarea) {
     let r;
     if (tarea === 'pronostico') r = await cron.tareaPronostico({ forzar: String(q.forzar || '') === '1', disparo });
     else if (tarea === 'observaciones') r = await cron.tareaObservaciones({ fecha: q.fecha ? String(q.fecha) : undefined, disparo });
+    else if (tarea === 'horas-frio') r = await (await import('./_horas-frio.js')).tareaHorasFrio({ disparo });
     else if (tarea === 'historico') r = await cron.tareaHistorico({ dias: q.dias ? Number(q.dias) : undefined });
     else { res.status(404).json({ estado: 'desconocida', mensaje: `Tarea desconocida: ${tarea}` }); return; }
     // Un error total devuelve 500 para que GitHub Actions marque la ejecución como fallida y avise por correo.
@@ -391,8 +392,24 @@ async function respondResumenLluvia(req, res) {
   }
 }
 
+// /api/resumen-campo: horas frío, heladas y riego (texto plano), también por reescritura.
+async function respondResumenCampo(req, res) {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', NO_CACHE);
+  try {
+    const { buildResumenCampo } = await import('./_resumen-campo.js');
+    const { text } = await buildResumenCampo();
+    res.status(200).send(text);
+  } catch (err) {
+    res.status(200).send(`PRONÓSTICO PARA EL CAMPO — SONORA
+
+[ERROR INTERNO: no se pudo armar el resumen. Motivo: ${err && err.message ? err.message : 'error desconocido'}.]`);
+  }
+}
+
 export async function respondResumenFrio(req, res) {
   const tipo = String(req.query?.tipo || '');
+  if (tipo === 'campo') return respondResumenCampo(req, res);
   if (tipo === 'pronostico') return respondResumenPronostico(req, res);
   if (tipo === 'lluvia') return respondResumenLluvia(req, res);
   if (tipo === 'verificacion') return respondVerificacion(req, res);

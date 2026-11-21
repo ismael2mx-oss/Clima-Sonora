@@ -10,7 +10,9 @@ export default async function handler(req, res) {
   try {
     // ?vista=dia | horas | semana: las listas de la página municipios-lluvia.html (nunca se guardan en caché).
     if (vista) {
-      const { VISTAS } = await import('./_lluvia-vistas.js');
+      const { VISTAS: V1 } = await import('./_lluvia-vistas.js');
+      // Vistas de la página campo.html (horas frío, heladas y riego): mismo punto de entrada para no pasar el límite de funciones de Vercel.
+      const VISTAS = vista.startsWith('campo-') ? (await import('./_campo.js')).VISTAS_CAMPO : V1;
       if (!VISTAS[vista]) { res.setHeader('Cache-Control', 'no-store'); res.status(400).json({ error: { message: 'Vista no válida (usa dia, horas o semana).' } }); return; }
       const datos = await VISTAS[vista]();
       res.setHeader('Cache-Control', 'no-store, max-age=0');

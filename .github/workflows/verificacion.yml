@@ -8,6 +8,7 @@ on:
   schedule:
     - cron: '30 12 * * *'
     - cron: '0 17 * * *'
+    - cron: '15 7 * * *'   # 00:15 h Sonora -> horas frío del día anterior (Pronóstico para el campo)
     # Respaldos por si GitHub retrasa o se salta los anteriores (guardar dos veces el mismo día es seguro):
     - cron: '5 14 * * *'   # 07:05 h Sonora -> pronóstico
     - cron: '5 18 * * *'   # 11:05 h Sonora -> observaciones
@@ -21,6 +22,7 @@ on:
           - pronostico
           - observaciones
           - historico
+          - horas-frio
         default: todo
       parametros:
         description: 'Parámetros opcionales de la URL (ej. dias=75, fecha=2026-11-01, forzar=1)'
@@ -51,12 +53,14 @@ jobs:
         run: |
           if [ "$EVENTO" = "workflow_dispatch" ]; then
             NOMBRE="$TAREA_ENTRADA"; PARAMETROS="$PARAMETROS_ENTRADA"
+          elif [ "$HORARIO" = "15 7 * * *" ]; then
+            NOMBRE="horas-frio"; PARAMETROS=""
           elif [ "$HORARIO" = "30 12 * * *" ] || [ "$HORARIO" = "5 14 * * *" ]; then
             NOMBRE="pronostico"; PARAMETROS=""
           else
             NOMBRE="observaciones"; PARAMETROS=""
           fi
-          case "$NOMBRE" in todo|pronostico|observaciones|historico) ;; *) echo "::error::Tarea no válida"; exit 1;; esac
+          case "$NOMBRE" in todo|pronostico|observaciones|historico|horas-frio) ;; *) echo "::error::Tarea no válida"; exit 1;; esac
           # Solo letras, números y = & _ . - (con grep, una cadena vacía contaba como inválida)
           if [ -n "$(printf '%s' "$PARAMETROS" | tr -d 'A-Za-z0-9=&_.-')" ]; then echo "::error::Parámetros no válidos"; exit 1; fi
           echo "nombre=$NOMBRE" >> "$GITHUB_OUTPUT"

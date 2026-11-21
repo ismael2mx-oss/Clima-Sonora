@@ -31,6 +31,14 @@
       "destination": "/api/resumen-frio?tipo=lluvia"
     },
     {
+      "source": "/api/resumen-campo",
+      "destination": "/api/resumen-frio?tipo=campo"
+    },
+    {
+      "source": "/api/resumen-campo/:slug*",
+      "destination": "/api/resumen-frio?tipo=campo"
+    },
+    {
       "source": "/api/verificacion",
       "destination": "/api/resumen-frio?tipo=verificacion"
     },
@@ -45,6 +53,10 @@
     {
       "source": "/api/cron/observaciones",
       "destination": "/api/resumen-frio?tipo=cron-observaciones"
+    },
+    {
+      "source": "/api/cron/horas-frio",
+      "destination": "/api/resumen-frio?tipo=cron-horas-frio"
     },
     {
       "source": "/api/cron/historico",

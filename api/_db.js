@@ -40,6 +40,13 @@ const ESQUEMA = [
   `CREATE TABLE IF NOT EXISTS lluvia_satelite (
     fecha TEXT NOT NULL, municipio TEXT NOT NULL, mm DOUBLE PRECISION, fuente TEXT NOT NULL, guardado_en TEXT NOT NULL,
     PRIMARY KEY (fecha, municipio))`,
+  // Horas frío por municipio y día (temporada nov-feb): clásicas (0 a 7.2 °C) y unidades Utah, con sus acumulados de la temporada.
+  `CREATE TABLE IF NOT EXISTS horas_frio (
+    fecha TEXT NOT NULL, municipio TEXT NOT NULL, temporada TEXT NOT NULL,
+    horas_dia INTEGER NOT NULL, utah_dia DOUBLE PRECISION NOT NULL, horas_acum INTEGER NOT NULL, utah_acum DOUBLE PRECISION NOT NULL,
+    horas_validas INTEGER NOT NULL, fuente TEXT NOT NULL, guardado_en TEXT NOT NULL,
+    PRIMARY KEY (fecha, municipio))`,
+  'CREATE INDEX IF NOT EXISTS idx_horas_frio_temp ON horas_frio (temporada, fecha)',
   // Bitácora de las tareas automáticas, para comprobar que se están ejecutando.
   `CREATE TABLE IF NOT EXISTS ejecuciones (
     tarea TEXT NOT NULL, inicio TEXT NOT NULL, fin TEXT, estado TEXT NOT NULL, detalle TEXT,

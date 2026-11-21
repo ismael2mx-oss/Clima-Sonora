@@ -140,6 +140,12 @@ export const loadOpenMeteoVerificacion = crearCargador(
   l => tieneArreglos(l, 'daily')
 );
 
+// Evapotranspiración de referencia (ET0 FAO-56, mm/día) de hoy y los 4 días siguientes, para el riego.
+export const loadOpenMeteoRiego = crearCargador(
+  () => `${BASE}?${coords()}&daily=et0_fao_evapotranspiration&timezone=${TZ}&forecast_days=5`,
+  l => tieneArreglos(l, 'daily') && Array.isArray(l.daily.et0_fao_evapotranspiration)
+);
+
 // Corrida más reciente de cada modelo (hora de inicialización, UTC). Si no se puede leer, devuelve null para ese modelo.
 export async function loadCorridasModelos() {
   return Promise.all(MODELOS.map(async m => {

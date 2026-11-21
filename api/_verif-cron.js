@@ -92,6 +92,13 @@ export async function tareaObservaciones({ fecha, disparo = 'manual' } = {}) {
     await guardarLluviaSatelite(sumaDias(hoy, -12), sumaDias(hoy, -1), res); // NASA POWER llega con ~3 días de retraso
     res.estado = res.errores.length ? (res.observaciones ? 'parcial' : 'error') : 'ok';
   } catch (err) { res.errores.push(msg(err)); res.estado = 'error'; }
+  // Horas frío del día anterior (misma ejecución diaria; si falla no afecta a las observaciones).
+  try {
+    const { asegurarHorasFrio } = await import('./_horas-frio.js');
+    const hf = await asegurarHorasFrio();
+    res.horasFrio = hf.temporadas.map(t => `${t.temporada}: +${t.diasNuevos} día(s)`).join('; ');
+    if (hf.errores.length) res.horasFrioErrores = hf.errores;
+  } catch (err) { res.horasFrioErrores = [msg(err)]; }
   await cerrar(res.estado, JSON.stringify(res));
   return res;
 }
