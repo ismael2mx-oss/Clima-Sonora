@@ -11,6 +11,9 @@ const signo = v => (finito(v) ? `${v > 0 ? '+' : ''}${Number(v).toFixed(1)}` : '
 const fallo = (que, err) => `[No disponible: no se pudo calcular ${que}. Motivo: ${err && err.message ? err.message : 'error desconocido'}]`;
 const fechaCorta = f => { const d = new Date(f + 'T12:00:00Z'); return `${d.getUTCDate()} ${['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'][d.getUTCMonth()]} ${d.getUTCFullYear()}`; };
 const generado = ms => new Intl.DateTimeFormat('es-MX', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(ms)) + ' h';
+// El porcentaje de comparación solo se muestra cuando los dos acumulados (este año y el pasado) son de 50 o más; con bases chicas un cambio de pocas horas da porcentajes enormes que engañan.
+const UMBRAL_PCT = 50;
+const conPct = (actual, anterior, pct) => finito(pct) && finito(actual) && finito(anterior) && actual >= UMBRAL_PCT && anterior >= UMBRAL_PCT;
 const lista = (items, tope = 25) => (items.length <= tope ? items.join(', ') : `${items.slice(0, tope).join(', ')} y ${items.length - tope} más`);
 
 function bloqueFrio(e) {
@@ -20,11 +23,12 @@ function bloqueFrio(e) {
   L.push('Método clásico (principal): horas con temperatura de 0 a 7.2 °C. Modelo Utah: unidades frío por hora (tabla estándar, el acumulado nunca baja de 0).');
   e.avisos?.forEach(a => L.push(`[Aviso: ${a}]`));
   L.push(`Promedio estatal: ${n1(p.horas)} horas frío clásicas y ${n1(p.utah)} unidades Utah.`);
-  L.push(`Comparación con la temporada anterior (${e.temporadaAnterior}, a la misma fecha, ${fechaCorta(e.corteAnterior)}): ${n1(p.horasAnt)} h y ${n1(p.utahAnt)} u. Diferencia: ${signo(p.difH)} h (${finito(p.difPct) ? signo(p.difPct) + '%' : 'sin porcentaje'}) en horas clásicas; ${signo(p.difUtah)} u (${finito(p.difUtahPct) ? signo(p.difUtahPct) + '%' : 'sin porcentaje'}) en Utah.`);
+  L.push(`Comparación con la temporada anterior (${e.temporadaAnterior}, a la misma fecha, ${fechaCorta(e.corteAnterior)}): ${n1(p.horasAnt)} h y ${n1(p.utahAnt)} u. Diferencia: ${signo(p.difH)} h${conPct(p.horas, p.horasAnt, p.difPct) ? ` (${signo(p.difPct)}%)` : ''} en horas clásicas; ${signo(p.difUtah)} u${conPct(p.utah, p.utahAnt, p.difUtahPct) ? ` (${signo(p.difUtahPct)}%)` : ''} en Utah.`);
+  L.push(`(El porcentaje de diferencia solo se muestra cuando este año y el pasado suman ${UMBRAL_PCT} o más; si no, solo la diferencia absoluta.)`);
   const conAnt = e.filas.filter(f => finito(f.difH));
   L.push(`Municipios con más horas que el año pasado: ${conAnt.filter(f => f.difH > 0).length}; con menos: ${conAnt.filter(f => f.difH < 0).length}; igual: ${conAnt.filter(f => f.difH === 0).length}.`);
   L.push(`Horas frío de la última semana (7 días hasta el ${fechaCorta(e.corte)}): promedio estatal ${n1(p.semana)} h; ayer (${fechaCorta(e.corte)}): ${n1(p.ayer)} h.`);
-  const fila = f => `${f.municipio}: ${f.horas} h / ${n1(f.utah)} u (ayer ${f.ayer} h; semana ${f.semana ?? 'sin dato'} h; año pasado ${f.horasAnt ?? 'sin dato'} h${finito(f.difH) ? ', ' + signo(f.difH) + ' h' + (finito(f.difPct) ? ' / ' + signo(f.difPct) + '%' : '') : ''})`;
+  const fila = f => `${f.municipio}: ${f.horas} h / ${n1(f.utah)} u (ayer ${f.ayer} h; semana ${f.semana ?? 'sin dato'} h; año pasado ${f.horasAnt ?? 'sin dato'} h${finito(f.difH) ? ', ' + signo(f.difH) + ' h' + (conPct(f.horas, f.horasAnt, f.difPct) ? ' / ' + signo(f.difPct) + '%' : '') : ''})`;
   L.push('', 'Los 10 municipios con MÁS horas frío (acumulado de la temporada):');
   e.filas.slice(0, 10).forEach((f, i) => L.push(`  ${i + 1}. ${fila(f)}`));
   L.push('', 'Los 10 municipios con MENOS horas frío:');
