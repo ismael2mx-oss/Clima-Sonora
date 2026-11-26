@@ -53,6 +53,15 @@ export default async function handler(req, res) {
 
   const resultados = await fetchInBatches(apiKey, MUNICIPIOS, 10, lluvia);
 
+  // WeatherAPI a veces falla para algunos municipios: se reintentan una vez (en lotes más chicos) antes de responder.
+  const fallidos = resultados.filter(r => r.maxtemp_c === null);
+  if (fallidos.length) {
+    await new Promise(r => setTimeout(r, 800));
+    const nombres = new Set(fallidos.map(r => r.municipio));
+    const otra = await fetchInBatches(apiKey, MUNICIPIOS.filter(m => nombres.has(m.municipio)), 4, lluvia);
+    for (const n of otra) if (n.maxtemp_c !== null) resultados[resultados.findIndex(r => r.municipio === n.municipio)] = n;
+  }
+
   resultados.sort((a, b) => {
     if (a.maxtemp_c === null) return 1;
     if (b.maxtemp_c === null) return -1;
@@ -60,6 +69,8 @@ export default async function handler(req, res) {
   });
 
   // Sin la lluvia de Open-Meteo (o con datos guardados) la respuesta no se guarda en caché.
-  res.setHeader('Cache-Control', lluviaOk ? 's-maxage=1800, stale-while-revalidate=300' : 'no-store');
+  // Tampoco se guarda en caché una lista a la que le falte alguna máxima (si no, el hueco duraría 30 minutos).
+  const completa = resultados.every(r => r.maxtemp_c !== null);
+  res.setHeader('Cache-Control', lluviaOk && completa ? 's-maxage=1800, stale-while-revalidate=300' : 'no-store');
   res.status(200).json({ generado: new Date().toISOString(), municipios: resultados });
 }

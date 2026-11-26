@@ -12,7 +12,8 @@ export default async function handler(req, res) {
     if (vista) {
       const { VISTAS: V1 } = await import('./_lluvia-vistas.js');
       // Vistas de la página campo.html (horas frío, heladas y riego): mismo punto de entrada para no pasar el límite de funciones de Vercel.
-      const VISTAS = vista.startsWith('campo-') ? (await import('./_campo.js')).VISTAS_CAMPO : V1;
+      const VISTAS = vista.startsWith('campo-') ? (await import('./_campo.js')).VISTAS_CAMPO
+        : vista.startsWith('mapa-') ? (await import('./_mapa.js')).VISTAS_MAPA : V1;
       if (!VISTAS[vista]) { res.setHeader('Cache-Control', 'no-store'); res.status(400).json({ error: { message: 'Vista no válida (usa dia, horas o semana).' } }); return; }
       const datos = await VISTAS[vista]();
       res.setHeader('Cache-Control', 'no-store, max-age=0');
