@@ -146,6 +146,12 @@ export const loadOpenMeteoRiego = crearCargador(
   l => tieneArreglos(l, 'daily') && Array.isArray(l.daily.et0_fao_evapotranspiration)
 );
 
+// Máximas de ICON, GFS y ECMWF (ayer y 5 días): solo se piden cuando best match no trae la máxima de algún municipio.
+export const loadOpenMeteoRespaldoMax = crearCargador(
+  () => `${BASE}?${coords()}&models=${MODELOS.map(m => m.id).join(',')}&daily=temperature_2m_max&timezone=${TZ}&past_days=1&forecast_days=5`,
+  l => tieneArreglos(l, 'daily')
+);
+
 // Corrida más reciente de cada modelo (hora de inicialización, UTC). Si no se puede leer, devuelve null para ese modelo.
 export async function loadCorridasModelos() {
   return Promise.all(MODELOS.map(async m => {

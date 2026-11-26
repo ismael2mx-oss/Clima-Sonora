@@ -174,7 +174,7 @@
     <div id="emptyHint" class="empty-hint">Presiona "Generar lista" para consultar los 72 municipios.</div>
   </div>
 
-  <footer>DATOS: WEATHERAPI.COM</footer>
+  <footer>DATOS: OPEN-METEO.COM (BEST MATCH)</footer>
 </div>
 
 <script>
@@ -211,7 +211,7 @@
       tbody.innerHTML = '';
       ultimaLista.forEach((m, i) => {
         const tr = document.createElement('tr');
-        const temp = (m.maxtemp_c === null || m.maxtemp_c === undefined) ? '—' : m.maxtemp_c.toFixed(1);
+        const temp = (m.maxtemp_c === null || m.maxtemp_c === undefined) ? '—' : m.maxtemp_c.toFixed(1) + (m.respaldo ? ' *' : '');
         const cabeceraHtml = (m.cabecera && m.cabecera !== m.municipio)
           ? `<td class="cabecera-cell">${m.municipio}<span class="cabecera">${m.cabecera}</span></td>`
           : `<td>${m.municipio}</td>`;
@@ -240,7 +240,8 @@
       tabla.style.display = 'table';
       emptyHint.style.display = 'none';
       const fechaTexto = ultimaFecha.toLocaleString('es-MX', { dateStyle: 'long', timeStyle: 'short' });
-      statusEl.textContent = `Lista generada · ${fechaTexto}`;
+      const resp = ultimaLista.filter(m => m.respaldo);
+      statusEl.textContent = `Lista generada · ${fechaTexto}` + (resp.length ? ` · * ${resp.length} con respaldo de otro modelo (${[...new Set(resp.map(m => m.fuente))].join(', ')})` : '');
       pdfBtn.disabled = false;
     }catch(err){
       statusEl.textContent = 'No se pudo generar la lista: ' + err.message;
@@ -259,14 +260,15 @@
     doc.setFontSize(14);
     doc.text('Temperatura máxima por municipio — Sonora', 14, 16);
     doc.setFontSize(10);
-    doc.text('Generado: ' + fechaTexto, 14, 23);
+    const hayRespaldo = ultimaLista.some(m => m.respaldo);
+    doc.text('Generado: ' + fechaTexto + ' · Datos: Open-Meteo (best match)' + (hayRespaldo ? ' · * respaldo de otro modelo' : ''), 14, 23);
     doc.text(resumenEl.textContent.replace(/\s+/g, ' ').trim(), 14, 29, { maxWidth: 180 });
 
     const filas = ultimaLista.map((m, i) => [
       i+1,
       m.municipio,
       m.cabecera,
-      (m.maxtemp_c === null || m.maxtemp_c === undefined) ? '—' : m.maxtemp_c.toFixed(1) + ' °C'
+      (m.maxtemp_c === null || m.maxtemp_c === undefined) ? '—' : m.maxtemp_c.toFixed(1) + ' °C' + (m.respaldo ? ' *' : '')
     ]);
 
     doc.autoTable({

@@ -97,7 +97,7 @@
     <span class="sp"></span>
     <button type="button" id="imagenBtn" disabled>Descargar imagen</button>
   </div>
-  <p class="nota">Toca un municipio para ver su pronóstico de 5 días. Cada capa usa los mismos datos que su página: máximas (WeatherAPI), mínimas de la página de frío (Open-Meteo), lluvia del "Pronóstico del día" (fijo desde la mañana) y horas frío de "Pronóstico para el campo". Límites municipales: INEGI, Marco Geoestadístico. Tu ubicación se usa solo en tu teléfono.</p>
+  <p class="nota">Toca un municipio para ver su pronóstico de 5 días. Cada capa usa los mismos datos que su página: máximas y mínimas iguales a las de la página de frío (Open-Meteo best match), lluvia del "Pronóstico del día" (fijo desde la mañana) y horas frío de "Pronóstico para el campo". Límites municipales: INEGI, Marco Geoestadístico. Tu ubicación se usa solo en tu teléfono.</p>
 </div>
 
 <aside class="panel" id="panel" hidden aria-live="polite"></aside>
@@ -110,7 +110,7 @@
   </div>
   <p>En iPhone también puedes mantener presionada la imagen para guardarla.</p>
 </div>
-<footer>DATOS: WEATHERAPI.COM · OPEN-METEO.COM · LÍMITES: INEGI</footer>
+<footer>DATOS: OPEN-METEO.COM · LÍMITES: INEGI</footer>
 
 <script>
 (() => {
@@ -190,7 +190,7 @@
         campoRespaldo = 'tmaxHoy';
         detalle = fechaLarga(hoy);
         const d = await pedir('temp');
-        d.municipios.forEach(m => out.set(m.municipio, { v: m.maxtemp_c }));
+        d.municipios.forEach(m => out.set(m.municipio, { v: m.maxtemp_c, nota: m.respaldo ? `respaldo: ${m.fuente}` : '' }));
       } else if (capa === 'min') {
         campoRespaldo = 'tminManana';
         detalle = fechaLarga(manana);
@@ -291,18 +291,22 @@
     const mt = buscar(temp?.municipios), mf = buscar(frio?.municipios), md = buscar(dia?.filas), ms = buscar(semana?.municipios), mh = buscar(horas?.filas), mhe = buscar(heladas?.municipios);
     const n0 = v => (finito(v) ? Math.round(v) : '—');
     const n1 = v => (finito(v) ? Number(v).toFixed(1) : '—');
+    let hayRespaldo = false;
     const filas = [0, 1, 2, 3, 4].map(i => {
       const f = sumaDias(hoy, i);
       const iF = frio ? frio.dias.indexOf(f) + 1 : 0;
       const iS = semana ? semana.dias.indexOf(f) : -1;
       const iH = heladas ? heladas.dias.indexOf(f) : -1;
+      // Hoy: el mismo dato de la lista de máximas y de la capa; los demás días, el de la página de frío (misma fuente).
       const tmax = i === 0 && finito(mt?.maxtemp_c) ? mt.maxtemp_c : iF > 0 ? mf?.tmax[iF] : null;
+      const conRespaldo = i === 0 && finito(mt?.maxtemp_c) ? mt.respaldo : Boolean(mf?.tmaxRespaldo?.[f]);
+      if (conRespaldo) hayRespaldo = true;
       const tmin = iF > 0 ? mf?.tmin[iF] : null;
       const prob = i === 0 && md ? md.p : iS >= 0 ? ms?.prob[iS] : null;
       const mm = i === 0 && md ? md.mm : iS >= 0 ? ms?.mm[iS] : null;
       const racha = iF > 0 ? mf?.gust[iF] : null;
       const nivel = iH >= 0 ? mhe?.nivel[iH] : null;
-      return `<tr><td>${diaCorto(f, i)}</td><td>${n1(tmax)}°</td><td>${n1(tmin)}°</td><td>${finito(prob) ? Math.round(prob) + '%' : '—'}</td><td>${n1(mm)}</td><td>${n0(racha)}</td><td title="Helada">${NIVEL_TXT[nivel] || '—'}</td></tr>`;
+      return `<tr><td>${diaCorto(f, i)}</td><td>${n1(tmax)}°${conRespaldo ? '*' : ''}</td><td>${n1(tmin)}°</td><td>${finito(prob) ? Math.round(prob) + '%' : '—'}</td><td>${n1(mm)}</td><td>${n0(racha)}</td><td title="Helada">${NIVEL_TXT[nivel] || '—'}</td></tr>`;
     }).join('');
     let helada = 'Sin dato de heladas.';
     if (mhe && heladas) {
@@ -312,7 +316,7 @@
     }
     p.innerHTML = cabeza +
       `<h3>Pronóstico de 5 días</h3><table><thead><tr><th>Día</th><th>Máx</th><th>Mín</th><th>Lluvia</th><th>mm</th><th>Racha</th><th>Hel.</th></tr></thead><tbody>${filas}</tbody></table>` +
-      '<p class="nota">Temperaturas en °C y rachas en km/h. La máxima de hoy es la de la lista de máximas y la lluvia de hoy la del "Pronóstico del día"; los demás datos son de Open-Meteo, como en las páginas de frío y lluvia.</p>' +
+      '<p class="nota">Temperaturas en °C y rachas en km/h. Datos de Open-Meteo (best match), los mismos de la lista de máximas y de la página de frío; la lluvia de hoy es la del "Pronóstico del día".' + (hayRespaldo ? ' * Máxima tomada de otro modelo porque best match no la dio.' : '') + '</p>' +
       `<h3>Horas frío acumuladas</h3><p>${mh ? `<b>${mh.horas} h</b> clásicas · ${n1(mh.utah)} unidades Utah · último día: ${mh.ayer} h<br><span class="sub">Temporada ${esc(horas.temporada)}, hasta el ${esc(fechaLarga(horas.corte))}</span>` : 'Sin dato.'}</p>` +
       `<h3>Riesgo de helada</h3><p>${helada}</p>`;
   }
@@ -415,8 +419,7 @@
     });
 
     g.textAlign = 'center'; g.fillStyle = GRIS; fuente(500, 18);
-    const origen = { max: 'WeatherAPI', min: 'Open-Meteo', lluvia: 'Open-Meteo', frio: 'Open-Meteo' }[capa];
-    g.fillText(`Datos: ${origen} · Límites: INEGI${lista.some(r => esRespaldo(r.d)) ? ' · * respaldo: Open-Meteo' : ''}`, 540, 1296);
+    g.fillText(`Datos: Open-Meteo · Límites: INEGI${lista.some(r => esRespaldo(r.d)) ? ' · * respaldo de otro modelo' : ''}`, 540, 1296);
     g.fillStyle = ORO; fuente(800, 32); g.fillText('Clima Ing. Ismael Trujillo', 540, 1334);
     return { cv, nombre: `mapa-sonora-${capa}-${datos.fecha}.png` };
   }

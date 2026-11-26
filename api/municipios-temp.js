@@ -1,46 +1,36 @@
 import { MUNICIPIOS } from './_municipios.js';
 import { loadLluviaDiaria } from './_lluvia.js';
+import { loadSonoraFrio, rellenarMaximas } from './_frio-data.js';
+import { loadOpenMeteoRespaldoMax } from './_openmeteo.js';
 
-// La probabilidad de lluvia sale SIEMPRE de la fuente única (_lluvia.js: Open-Meteo, día completo 00-24 h de Sonora).
-// Si no está disponible se devuelve null ("—" en la página); ya no se mezcla con la cifra de WeatherAPI.
-async function fetchMaxTemp(apiKey, m, lluvia) {
-  const url = `https://api.weatherapi.com/v1/forecast.json?key=${apiKey}&q=${m.lat},${m.lon}&days=1&aqi=no&alerts=no&lang=es`;
-  const prob = lluvia.get(m.municipio);
-  const chance = typeof prob === 'number' ? prob : null;
+// Lista de máximas de hoy. La fuente es la MISMA que la de la página de frío (Open-Meteo best match, con respaldo de
+// ICON, GFS o ECMWF para el municipio al que le falte); el mapa y el panel del municipio usan esta misma respuesta.
+// La probabilidad de lluvia sale de la fuente única (_lluvia.js: Open-Meteo, día completo 00-24 h de Sonora).
+
+const hoySonora = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Hermosillo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+
+async function maximasDeHoy(hoy) {
   try {
-    const upstream = await fetch(url);
-    if (!upstream.ok) return { municipio: m.municipio, cabecera: m.cabecera, maxtemp_c: null, chance_of_rain: chance, condicion: null };
-    const data = await upstream.json();
-    const day = data?.forecast?.forecastday?.[0]?.day;
-    return {
-      municipio: m.municipio,
-      cabecera: m.cabecera,
-      maxtemp_c: day ? day.maxtemp_c : null,
-      chance_of_rain: chance,
-      condicion: day ? day.condition.text : null
-    };
-  } catch (err) {
-    return { municipio: m.municipio, cabecera: m.cabecera, maxtemp_c: null, chance_of_rain: chance, condicion: null };
+    const f = await loadSonoraFrio();
+    const k = f.allDias.indexOf(hoy);
+    if (k < 0) throw new Error('los datos de Open-Meteo no traen el día de hoy');
+    return { municipios: f.municipios, k, desdeCache: f.desdeCache, datosDe: f.datosDe };
+  } catch (errorPrincipal) {
+    // Si best match no responde para nadie, se usan los otros modelos para todos.
+    try {
+      const r = await loadOpenMeteoRespaldoMax();
+      const fechas = r.list[0]?.daily?.time || [];
+      const k = fechas.indexOf(hoy);
+      if (k < 0) throw errorPrincipal;
+      const municipios = MUNICIPIOS.map(m => ({ municipio: m.municipio, cabecera: m.cabecera, tmax: fechas.map(() => null) }));
+      rellenarMaximas(municipios, fechas, r.list);
+      return { municipios, k, desdeCache: r.desdeCache, datosDe: r.datosDe };
+    } catch (_) { throw errorPrincipal; }
   }
-}
-
-async function fetchInBatches(apiKey, items, batchSize, lluvia) {
-  const results = [];
-  for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, i + batchSize);
-    const batchResults = await Promise.all(batch.map(m => fetchMaxTemp(apiKey, m, lluvia)));
-    results.push(...batchResults);
-  }
-  return results;
 }
 
 export default async function handler(req, res) {
-  const apiKey = process.env.WEATHERAPI_KEY;
-  if (!apiKey) {
-    res.status(500).json({ error: { message: 'Falta configurar WEATHERAPI_KEY en el servidor.' } });
-    return;
-  }
-
+  const hoy = hoySonora();
   let lluvia = new Map();
   let lluviaOk = true;
   try {
@@ -51,26 +41,37 @@ export default async function handler(req, res) {
     lluviaOk = false;
   }
 
-  const resultados = await fetchInBatches(apiKey, MUNICIPIOS, 10, lluvia);
-
-  // WeatherAPI a veces falla para algunos municipios: se reintentan una vez (en lotes más chicos) antes de responder.
-  const fallidos = resultados.filter(r => r.maxtemp_c === null);
-  if (fallidos.length) {
-    await new Promise(r => setTimeout(r, 800));
-    const nombres = new Set(fallidos.map(r => r.municipio));
-    const otra = await fetchInBatches(apiKey, MUNICIPIOS.filter(m => nombres.has(m.municipio)), 4, lluvia);
-    for (const n of otra) if (n.maxtemp_c !== null) resultados[resultados.findIndex(r => r.municipio === n.municipio)] = n;
+  let datos;
+  try {
+    datos = await maximasDeHoy(hoy);
+  } catch (err) {
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(502).json({ error: { message: `No se pudieron consultar las máximas en Open-Meteo: ${err && err.message ? err.message : 'error desconocido'}` } });
+    return;
   }
+
+  const resultados = datos.municipios.map(m => {
+    const v = m.tmax[datos.k];
+    const respaldo = (m.tmaxRespaldo && m.tmaxRespaldo[hoy]) || null;
+    const prob = lluvia.get(m.municipio);
+    return {
+      municipio: m.municipio,
+      cabecera: m.cabecera,
+      maxtemp_c: Number.isFinite(v) ? v : null,
+      fuente: Number.isFinite(v) ? (respaldo || 'best match') : null,
+      respaldo: Boolean(respaldo),
+      chance_of_rain: typeof prob === 'number' ? prob : null
+    };
+  });
 
   resultados.sort((a, b) => {
     if (a.maxtemp_c === null) return 1;
     if (b.maxtemp_c === null) return -1;
-    return b.maxtemp_c - a.maxtemp_c;
+    return b.maxtemp_c - a.maxtemp_c || a.municipio.localeCompare(b.municipio, 'es');
   });
 
-  // Sin la lluvia de Open-Meteo (o con datos guardados) la respuesta no se guarda en caché.
-  // Tampoco se guarda en caché una lista a la que le falte alguna máxima (si no, el hueco duraría 30 minutos).
+  // Misma duración de caché que la página de frío. Con datos guardados, sin lluvia o con algún hueco no se guarda.
   const completa = resultados.every(r => r.maxtemp_c !== null);
-  res.setHeader('Cache-Control', lluviaOk && completa ? 's-maxage=1800, stale-while-revalidate=300' : 'no-store');
-  res.status(200).json({ generado: new Date().toISOString(), municipios: resultados });
+  res.setHeader('Cache-Control', lluviaOk && completa && !datos.desdeCache ? 's-maxage=900, stale-while-revalidate=300' : 'no-store');
+  res.status(200).json({ generado: new Date().toISOString(), fecha: hoy, fuente: 'Open-Meteo (best match)', datosDe: datos.datosDe, desdeCache: datos.desdeCache, municipios: resultados });
 }

@@ -11,6 +11,9 @@
     },
     "api/sonora-lluvia.js": {
       "maxDuration": 60
+    },
+    "api/municipios-temp.js": {
+      "maxDuration": 60
     }
   },
   "rewrites": [
